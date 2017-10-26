@@ -124,6 +124,7 @@ def make_base_model(model_opt, fields, gpu, checkpoint=None):
     # Make encoder.
     if model_opt.model_type == "text":
         src_dict = fields["src"].vocab
+        print('Length dict {}'.format(len(src_dict)))
         feature_dicts = ONMTDataset.collect_feature_dicts(fields)
         src_embeddings = make_embeddings(model_opt, src_dict,
                                          feature_dicts)

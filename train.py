@@ -94,10 +94,12 @@ def make_train_data_iter(train_data, opt):
     ordered iterator strategy here, but more sophisticated strategy
     like curriculum learning is ok too.
     """
+    # Sort batch by decreasing lengths of sentence required by pytorch.
+    # sort=False means "Using dataset's sortkey instead of iterator's sortkey".
     return onmt.IO.OrderedIterator(
                 dataset=train_data, batch_size=opt.batch_size,
                 device=opt.gpuid[0] if opt.gpuid else -1,
-                repeat=False)
+                sort=False, sort_within_batch=True, repeat=False)
 
 
 def make_valid_data_iter(valid_data, opt):
@@ -262,6 +264,7 @@ def main():
     valid = torch.load(opt.data + '.valid.pt')
     print(' * number of training sentences: %d' % len(train))
     print(' * maximum batch size: %d' % opt.batch_size)
+    print('Example', train.examples[10000-1].src)
 
     # Load checkpoint if we resume from a previous training.
     if opt.train_from:

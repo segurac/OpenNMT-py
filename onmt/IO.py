@@ -107,8 +107,8 @@ class ONMTDataset(torchtext.data.Dataset):
 
     @staticmethod
     def sort_key(ex):
-        "Sort in reverse size order"
-        return -len(ex.src)
+        "Sort by length of sentences."
+        return len(ex.src)
 
     def __init__(self, src_path, tgt_path, fields, opt,
                  src_img_dir=None, **kwargs):
