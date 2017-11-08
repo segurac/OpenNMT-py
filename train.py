@@ -99,7 +99,7 @@ def make_train_data_iter(train_data, opt):
     return onmt.IO.OrderedIterator(
                 dataset=train_data, batch_size=opt.batch_size,
                 device=opt.gpuid[0] if opt.gpuid else -1,
-                sort=False, sort_within_batch=True, repeat=False)
+                repeat=False)
 
 
 def make_valid_data_iter(valid_data, opt):

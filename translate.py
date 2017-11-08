@@ -60,7 +60,7 @@ def main():
     test_data = onmt.IO.OrderedIterator(
         dataset=data, device=opt.gpu,
         batch_size=opt.batch_size, train=False, sort=False,
-        sort_within_batch=True, shuffle=False)
+        shuffle=False)
 
     counter = count(1)
     for batch in test_data:

@@ -182,7 +182,7 @@ def train_opts(parser):
                         help="""Maximum batches of words in a sequence to run
                         the generator on in parallel. Higher is faster, but
                         uses more memory.""")
-    parser.add_argument('-epochs', type=int, default=13,
+    parser.add_argument('-epochs', type=int, default=30,
                         help='Number of training epochs')
     parser.add_argument('-optim', default='sgd',
                         choices=['sgd', 'adagrad', 'adadelta', 'adam'],
@@ -228,7 +228,7 @@ def train_opts(parser):
 def translate_opts(parser):
     parser.add_argument('-model', required=True,
                         help='Path to model .pt file')
-    parser.add_argument('-src',   required=True,
+    parser.add_argument('-src',   required=False,
                         help="""Source sequence to decode (one line per
                         sequence)""")
     parser.add_argument('-src_img_dir',   default="",
