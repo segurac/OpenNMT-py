@@ -9,7 +9,8 @@ import onmt.Models
 import onmt.modules
 from onmt.IO import ONMTDataset
 from onmt.Models import NMTModel, MeanEncoder, RNNEncoder, \
-                        StdRNNDecoder, InputFeedRNNDecoder
+                        StdRNNDecoder, InputFeedRNNDecoder, \
+                        AnsSelectModel
 from onmt.modules import Embeddings, ImageEncoder, CopyGenerator, \
                          TransformerEncoder, TransformerDecoder, \
                          CNNEncoder, CNNDecoder
@@ -105,6 +106,52 @@ def make_decoder(opt, embeddings):
                              opt.copy_attn,
                              opt.dropout,
                              embeddings)
+
+
+def make_base_model_as(model_opt, fields, gpu, checkpoint=None):
+    # Make encoder "Question encoder and Answer encoder share weights"
+    src_dict = fields["src"].vocab
+    print('Length dict {}'.format(len(src_dict)))
+    feature_dicts = ONMTDataset.collect_feature_dicts(fields)
+    src_embeddings = make_embeddings(model_opt, src_dict,
+                                     feature_dicts)
+    encoder = make_encoder(model_opt, src_embeddings)
+
+    model = AnsSelectModel(encoder)
+
+    # Make Generator.
+    if not model_opt.copy_attn:
+        generator = nn.Sequential(
+            nn.Linear(model_opt.rnn_size, len(fields["tgt"].vocab)),
+            nn.LogSoftmax())
+    else:
+        generator = CopyGenerator(model_opt, fields["src"].vocab,
+                                  fields["tgt"].vocab)
+
+    # Load the model states from checkpoint or initialize them.
+    if checkpoint is not None:
+        print('Loading model parameters.')
+        model.load_state_dict(checkpoint['model'])
+    else:
+        if model_opt.param_init != 0.0:
+            print('Intializing model parameters.')
+            for p in model.parameters():
+                p.data.uniform_(-model_opt.param_init, model_opt.param_init)
+            for p in generator.parameters():
+                p.data.uniform_(-model_opt.param_init, model_opt.param_init)
+        model.encoder.embeddings.load_pretrained_vectors(
+            model_opt.pre_word_vecs_enc, model_opt.fix_word_vecs_enc)
+
+    # Add generator to model (this registers it as parameter of model).
+    model.generator = generator
+
+    # Make the whole model leverage GPU if indicated to do so.
+    if gpu:
+        model.cuda()
+    else:
+        model.cpu()
+
+    return model
 
 
 def make_base_model(model_opt, fields, gpu, checkpoint=None):

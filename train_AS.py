@@ -14,25 +14,20 @@ import onmt.modules
 from onmt.Utils import aeq, use_gpu
 import opts
 
-parser = argparse.ArgumentParser(description='train.py')
+parser = argparse.ArgumentParser(description='train_AS.py')
 
 # opts.py
 opts.add_md_help_argument(parser)
 opts.model_opts(parser)
-opts.train_opts(parser)
+opts.train_AS_ops(parser)
 
 opt = parser.parse_args()
 if opt.word_vec_size != -1:
     opt.src_word_vec_size = opt.word_vec_size
     opt.tgt_word_vec_size = opt.word_vec_size
 
-if opt.layers != -1:
-    opt.enc_layers = opt.layers
-    opt.dec_layers = opt.layers
 
 opt.brnn = (opt.encoder_type == "brnn")
-
-torch.manual_seed(1369)
 if opt.seed > 0:
     torch.manual_seed(opt.seed)
 
@@ -46,22 +41,6 @@ if opt.gpuid:
     cuda.set_device(opt.gpuid[0])
     if opt.seed > 0:
         torch.cuda.manual_seed(opt.seed)
-
-if len(opt.gpuid) > 1:
-    sys.stderr.write("Sorry, multigpu isn't supported yet, coming soon!\n")
-    sys.exit(1)
-
-
-# Set up the Crayon logging server.
-if opt.exp_host != "":
-    from pycrayon import CrayonClient
-    cc = CrayonClient(hostname=opt.exp_host)
-
-    experiments = cc.get_experiment_names()
-    print(experiments)
-    if opt.exp in experiments:
-        cc.remove_experiment(opt.exp)
-    experiment = cc.create_experiment(opt.exp)
 
 
 def report_func(epoch, batch, num_batches,
@@ -82,8 +61,6 @@ def report_func(epoch, batch, num_batches,
     """
     if batch % opt.report_every == -1 % opt.report_every:
         report_stats.output(epoch, batch+1, num_batches, start_time)
-        if opt.exp_host:
-            report_stats.log("progress", experiment, lr)
         report_stats = onmt.Statistics()
 
     return report_stats
@@ -165,11 +142,6 @@ def train_model(model, train_data, valid_data, fields, optim):
         print('Validation perplexity: %g' % valid_stats.ppl())
         print('Validation accuracy: %g' % valid_stats.accuracy())
 
-        # 3. Log to remote server.
-        if opt.exp_host:
-            train_stats.log("train", experiment, optim.lr)
-            valid_stats.log("valid", experiment, optim.lr)
-
         # 4. Update the learning rate
         trainer.epoch_step(valid_stats.ppl(), epoch)
 
@@ -188,15 +160,6 @@ def check_save_model_path():
 def tally_parameters(model):
     n_params = sum([p.nelement() for p in model.parameters()])
     print('* number of parameters: %d' % n_params)
-    enc = 0
-    dec = 0
-    for name, param in model.named_parameters():
-        if 'encoder' in name:
-            enc += param.nelement()
-        elif 'decoder' or 'generator' in name:
-            dec += param.nelement()
-    print('encoder: ', enc)
-    print('decoder: ', dec)
 
 
 def load_fields(train, valid, checkpoint):
@@ -228,11 +191,10 @@ def collect_features(train, fields):
 
 def build_model(model_opt, opt, fields, checkpoint):
     print('Building model...')
-    model = onmt.ModelConstructor.make_base_model(model_opt, fields,
-                                                  use_gpu(opt), checkpoint)
-    if len(opt.gpuid) > 1:
-        print('Multi gpu training: ', opt.gpuid)
-        model = nn.DataParallel(model, device_ids=opt.gpuid, dim=1)
+    model = onmt.ModelConstructor.make_base_model_as(model_opt,
+                                                     fields,
+                                                     use_gpu(opt),
+                                                     checkpoint)
     print(model)
 
     return model

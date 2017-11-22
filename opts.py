@@ -11,7 +11,7 @@ def model_opts(parser):
     parser.add_argument('-model_type', default='text',
                         help="Type of encoder to use. Options are [text|img].")
     # Embedding Options
-    parser.add_argument('-word_vec_size', type=int, default=-1,
+    parser.add_argument('-word_vec_size', type=int, default=500,
                         help='Word embedding for both.')
     parser.add_argument('-src_word_vec_size', type=int, default=500,
                         help='Src word embedding sizes')
@@ -51,6 +51,8 @@ def model_opts(parser):
                         help='Number of layers in the encoder')
     parser.add_argument('-dec_layers', type=int, default=2,
                         help='Number of layers in the decoder')
+    parser.add_argument('-QALSTM', type=int, default=2,
+                        help='Number of layers in QA-LSTM')
 
     parser.add_argument('-cnn_kernel_width', type=int, default=3,
                         help="""Size of windows in the cnn, the kernel_size is
@@ -62,6 +64,8 @@ def model_opts(parser):
                         help="""Feed the context vector at each time step as
                         additional input (via concatenation with the word
                         embeddings) to the decoder.""")
+    parser.add_argument('-QA_rnn_size', type=int, default=500,
+                        help='Size of QA-LSTM hidden states')
 
     parser.add_argument('-rnn_type', type=str, default='LSTM',
                         choices=['LSTM', 'GRU', 'SRU'],
@@ -104,9 +108,12 @@ def preprocess_opts(parser):
                         help="Size of the source vocabulary")
     parser.add_argument('-tgt_vocab_size', type=int, default=50000,
                         help="Size of the target vocabulary")
+    parser.add_argument('-pool_vocab_size', type=int, default=50000,
+                        help="Size of the Pool vocabulary")
 
     parser.add_argument('-src_words_min_frequency', type=int, default=0)
     parser.add_argument('-tgt_words_min_frequency', type=int, default=0)
+    parser.add_argument('-pool_words_min_frequency', type=int, default=0)
 
     # Truncation options
     parser.add_argument('-src_seq_length', type=int, default=50,
@@ -223,6 +230,90 @@ def train_opts(parser):
                         help="Send logs to this crayon server.")
     parser.add_argument('-exp', type=str, default="",
                         help="Name of the experiment for logging.")
+
+
+def train_AS(parser):
+    parser.add_argument('-dist', type=str, default="cosine",
+                        choices=['cosine'], help="Distance between question and answer")
+
+    parser.add_argument('-vocab_size', type=int, default=50000,
+                        help="Size of the source vocabulary")
+
+    parser.add_argument('-QAbrnn', type=int, default=1,
+                        help="Bidirectional LSTM")
+
+    parser.add_argument('-pool_size', type=int, default=64,
+                        help='Number of negative samples per positive samples')
+
+    parser.add_argument('-margin', type=int, default=10,
+                        help='Margin for the Hinge loss')
+
+    # # Embedding Options
+    # parser.add_argument('-word_vec_size', type=int, default=-1,
+    #                     help='Word embedding for both.')
+    # parser.add_argument('-src_word_vec_size', type=int, default=500,
+    #                     help='Src word embedding sizes')
+    # parser.add_argument('-tgt_word_vec_size', type=int, default=500,
+    #                     help='Tgt word embedding sizes')
+    #
+    # parser.add_argument('-feat_merge', type=str, default='concat',
+    #                     choices=['concat', 'sum', 'mlp'],
+    #                     help='Merge action for the features embeddings')
+    # parser.add_argument('-feat_vec_size', type=int, default=-1,
+    #                     help="""If specified, feature embedding sizes
+    #                         will be set to this. Otherwise, feat_vec_exponent
+    #                         will be used.""")
+    # parser.add_argument('-feat_vec_exponent', type=float, default=0.7,
+    #                     help="""If -feat_merge_size is not set, feature
+    #                         embedding sizes will be set to N^feat_vec_exponent
+    #                         where N is the number of values the feature takes.""")
+    # parser.add_argument('-position_encoding', action='store_true',
+    #                     help='Use a sin to mark relative words positions.')
+    # parser.add_argument('-share_decoder_embeddings', action='store_true',
+    #                     help='Share the word and out embeddings for decoder.')
+    # parser.add_argument('-share_embeddings', action='store_true',
+    #                     help="""Share the word embeddings between encoder
+    #                          and decoder.""")
+    #
+    # # RNN Options
+    # parser.add_argument('-encoder_type', type=str, default='rnn',
+    #                     choices=['rnn', 'brnn', 'mean', 'transformer', 'cnn'],
+    #                     help="""Type of encoder layer to use.""")
+    #
+    # parser.add_argument('-layers', type=int, default=-1,
+    #                     help='Number of layers in enc/dec.')
+    #
+    # parser.add_argument('-rnn_size', type=int, default=500,
+    #                     help='Size of LSTM hidden states')
+    #
+    # parser.add_argument('-input_feed', type=int, default=0,
+    #                     help="""Feed the context vector at each time step as
+    #                         additional input (via concatenation with the word
+    #                         embeddings) to the decoder.""")
+    #
+    # parser.add_argument('-rnn_type', type=str, default='LSTM',
+    #                     choices=['LSTM', 'GRU', 'SRU'],
+    #                     action=CheckSRU,
+    #                     help="""The gate type to use in the RNNs""")
+    #
+    # parser.add_argument('-brnn_merge', default='concat',
+    #                     choices=['concat', 'sum'],
+    #                     help="Merge action for the bidir hidden states")
+    #
+    # parser.add_argument('-context_gate', type=str, default=None,
+    #                     choices=['source', 'target', 'both'],
+    #                     help="""Type of context gate to use.
+    #                         Do not select for no context gate.""")
+    #
+    # # Genenerator and loss options.
+    # parser.add_argument('-copy_attn', action="store_true",
+    #                     help='Train copy attention layer.')
+    # parser.add_argument('-copy_attn_force', action="store_true",
+    #                     help='When available, train to copy.')
+    # parser.add_argument('-coverage_attn', action="store_true",
+    #                     help='Train a coverage attention layer.')
+    # parser.add_argument('-lambda_coverage', type=float, default=1,
+    #                     help='Lambda value for coverage.')
 
 
 def translate_opts(parser):

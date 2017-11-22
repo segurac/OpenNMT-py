@@ -381,6 +381,24 @@ class InputFeedRNNDecoder(RNNDecoderBase):
         return self.embeddings.embedding_size + self.hidden_size
 
 
+class AnsSelectModel(nn.Module):
+    """
+    Encode both Q and A and measure distance.
+    """
+
+    def __init__(self, encoder):
+        super(AnsSelectModel, self).__init__()
+        self.encoder = encoder
+
+    def forward(self, question, answers, lengths):
+
+        q_hidden, q_context = self.encoder(question, lengths)
+        a_hidden, a_context = self.encoder(answers, lengths)
+
+        return q_hidden, q_context, a_hidden, a_context
+
+
+
 class NMTModel(nn.Module):
     """
     The encoder + decoder Neural Machine Translation Model.
