@@ -69,8 +69,8 @@ def make_valid_data_iter(valid_data, opt):
     """
     return onmt.IO.OrderedIterator(
                 dataset=valid_data, batch_size=opt.batch_size,
-                device=opt.gpuid[0] if opt.gpuid else -1,
-                train=True, sort=True)
+                device=opt.gpuid[0] if opt.gpuid else -1, repeat=False,
+                train=False, sort=True)
 
 
 def make_pool_data_iter(train_data, opt):
@@ -81,7 +81,7 @@ def make_pool_data_iter(train_data, opt):
 
 
 def load_fields(train, valid, checkpoint):
-    fields = onmt.IO.ONMTDataset.load_fields(
+    fields = onmt.IO.MyONMTDataset.load_fields(
                 torch.load(opt.data + '.vocab.pt'))
     fields = dict([(k, f) for (k, f) in fields.items()
                   if k in train.examples[0].__dict__])
@@ -90,10 +90,10 @@ def load_fields(train, valid, checkpoint):
 
     if opt.train_from:
         print('Loading vocab from checkpoint at %s.' % opt.train_from)
-        fields = onmt.IO.ONMTDataset.load_fields(checkpoint['vocab'])
+        fields = onmt.IO.MyONMTDataset.load_fields(checkpoint['vocab'])
 
-    print(' * vocabulary size. source = %d; target = %d' %
-          (len(fields['src'].vocab), len(fields['tgt'].vocab)))
+    print(' * vocabulary size. source = %d; target = %d; pool = %d' %
+          (len(fields['src'].vocab), len(fields['tgt'].vocab), len(fields['pool'].vocab)))
 
     return fields
 
@@ -101,24 +101,32 @@ def load_fields(train, valid, checkpoint):
 def collect_features(train, fields):
     # TODO: account for target features.
     # Also, why does fields need to have the structure it does?
-    src_features = onmt.IO.ONMTDataset.collect_features(fields)
+    src_features = onmt.IO.MyONMTDataset.collect_features(fields)
     aeq(len(src_features), train.nfeatures)
 
     return src_features
 
 
-def my_trainer(train_iter, valid_iter, model, opt):
+def my_trainer(train_iter, model, opt, epoch):
 
     criterion = nn.MarginRankingLoss(opt.margin)
     cos_dist = nn.CosineSimilarity()
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-    # batchN_iter = iter(pool_iter)
+    model.train()
+    targets = -torch.ones(opt.batch_size)
+    previous = opt.batch_size
+    if opt.gpuid:
+        targets = targets.cuda()
+        targets = Variable(targets)
 
     running_loss = 0.0
-    for i, batch in enumerate(train_iter):
+    for batch_idx, batch in enumerate(train_iter):
         target_size = batch.tgt.size(0)
-        # batchN = next(batchN_iter)
+
+        # if batch_idx != len(train_iter)-1:
+        #     print('1')
+        #     continue
 
         dec_state = None
         _, src_lengths = batch.src
@@ -128,16 +136,17 @@ def my_trainer(train_iter, valid_iter, model, opt):
         n_answer = onmt.IO.make_features(batch, 'pool')
 
         model.zero_grad()
-        q, a, a_n = model.forward(question, c_answer, n_answer, src_lengths)
+        q, a, a_n = model.forward(question, c_answer, n_answer, src_lengths, batch.batch_size)
 
         p_dist = cos_dist(q, a)
         n_dist = cos_dist(q, a_n)
 
-        targets = torch.ones(batch.batch_size)
-        if opt.gpuid:
-            targets = targets.cuda()
-
-        targets = Variable(targets)
+        if batch.batch_size != previous:
+            targets = -torch.ones(batch.batch_size)
+            previous = batch.batch_size
+            if opt.gpuid:
+                targets = targets.cuda()
+                targets = Variable(targets)
 
         loss = criterion(p_dist, n_dist, targets)
         loss.backward()
@@ -146,12 +155,71 @@ def my_trainer(train_iter, valid_iter, model, opt):
         # Statistics
         running_loss += loss.data[0]
 
-    print(i)
-    return running_loss/i
+        if (batch_idx+1) % 10 == 0:
+            print('\r Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                epoch, batch_idx * batch.batch_size, len(train_iter.dataset),
+                       100. * batch_idx / len(train_iter), loss.data[0]))
+
+    return running_loss/batch_idx
+
+
+def my_validator(valid_iter, model, opt):
+    criterion = nn.MarginRankingLoss(opt.margin)
+    cos_dist = nn.CosineSimilarity()
+    valid_loss = 0
+    correct = 0
+
+    model.eval()
+    targets = -torch.ones(opt.batch_size)
+    equals = torch.zeros(opt.batch_size).long()
+    previous = opt.batch_size
+    if opt.gpuid:
+        targets = targets.cuda()
+        targets = Variable(targets, volatile=True)
+        equals = equals.cuda()
+
+    for batch_idx, batch in enumerate(valid_iter):
+        target_size = batch.tgt.size(0)
+
+        dec_state = None
+        _, src_lengths = batch.src
+
+        question = onmt.IO.make_features(batch, 'src')
+        c_answer = onmt.IO.make_features(batch, 'tgt')
+        n_answer = onmt.IO.make_features(batch, 'pool')
+
+        q, a, a_n = model.forward(question, c_answer, n_answer, src_lengths, batch.batch_size)
+
+        p_dist = cos_dist(q, a)
+        n_dist = cos_dist(q, a_n)
+
+        if batch.batch_size != previous:
+            previous = batch.batch_size
+            targets = -torch.ones(batch.batch_size)
+            equals = torch.zeros(batch.batch_size).long()
+            if opt.gpuid:
+                targets = targets.cuda()
+                targets = Variable(targets, volatile=True)
+                equals = equals.cuda()
+
+        valid_loss += criterion(p_dist, n_dist, targets).data[0]
+
+        p_dist = p_dist.view(batch.batch_size, 1)
+        n_dist = n_dist.view(batch.batch_size, 1)
+
+        all_answers = torch.cat((p_dist, n_dist), 1)
+        pred = all_answers.data.min(1)[1]
+        # pred = pred.cpu()
+        correct += pred.eq(equals).sum()
+
+        if (batch_idx + 1) % 20 == 0:
+            print('\rProcessing validation... {:.0f}%'.format(100. * batch_idx / len(valid_iter)))
+
+    return valid_loss/len(valid_iter), correct/len(valid_iter.dataset)
 
 
 def main():
-    opt.batch_size = 64
+    opt.batch_size = 20
     # Load train and validate data.
     print("Loading train and validate data from '%s'" % opt.data)
     train = torch.load(opt.data + '.train.pt')
@@ -176,6 +244,8 @@ def main():
     model = MyRNN(opt.vocab_size, opt.word_vec_size,
                   opt.QA_rnn_size, opt.QALSTM, opt.dropout,
                   opt.batch_size, opt.QAbrnn, use_cuda=opt.gpuid)
+
+    print(model)
     if opt.gpuid:
         model.cuda()
 
@@ -184,15 +254,38 @@ def main():
     valid_iter = make_valid_data_iter(valid, opt)
     # pool_iter = make_pool_data_iter(train, opt)
 
-    all_losses = []
+    train_losses = []
+    val_losses = []
+    val_accuracy = []
+    print(26*"*")
+    print(5*"*" + " Start training " + 5*"*")
+    print(26*"*")
     for epoch in range(opt.start_epoch, opt.epochs + 1):
-        running_loss = my_trainer(train_iter, valid_iter, model, opt)
-        all_losses.append(running_loss)
-        print('*' * 5 + 'Epoch ' + str(epoch) + '*' * 5 + '----> loss = ' + str(running_loss))
+        train_loss = my_trainer(train_iter, model, opt, epoch)
+        train_losses.append(train_loss)
+        val_loss, val_acc = my_validator(valid_iter, model, opt)
+        val_losses.append(val_loss)
+        val_accuracy.append(val_acc)
 
-    plt.figure()
-    plt.plot(all_losses)
-    plt.savefig('loss-vs-time.png')
+        print('\n' + '*' * 8 + 'Epoch ' + str(epoch) + '*' * 8 + '\n')
+        print('\r Train set: Average loss: {:.4f}'.format(train_loss))
+        print('\r Valid set: Average loss: {:.4f}, Accuracy: {:.0f}%\n'.format(
+            val_loss, 100.*val_acc))
+        print('\n' + '*' * 22 + '\n')
+
+        plt.figure()
+        plt.plot(train_losses, label='train')
+        plt.plot(val_losses, label='valid')
+        plt.legend()
+        plt.savefig('loss-vs-epoch.png')
+        plt.close()
+
+        plt.figure()
+        plt.plot(val_accuracy, label='valid')
+        plt.savefig('Accuracy-vs-epoch.png')
+        plt.close()
+
+        torch.save(model, 'AnswerSelectModel_epoch_' + str(epoch) + '_acc_' + str(val_acc) + '.pt')
 
 
 if __name__ == "__main__":

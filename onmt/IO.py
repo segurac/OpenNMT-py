@@ -68,7 +68,7 @@ def make_features(batch, side):
         A sequence of src/tgt tensors with optional feature tensors
         of size (len x batch).
     """
-    assert side in ['src', 'tgt']
+    assert side in ['src', 'tgt', 'pool']
     if isinstance(batch.__dict__[side], tuple):
         data = batch.__dict__[side][0]
     else:
@@ -425,6 +425,7 @@ class MyONMTDataset(torchtext.data.Dataset):
         else:
             examples = src_examples
 
+
         def dynamic_dict(examples):
             for example in examples:
                 src = example["src"]
@@ -487,13 +488,36 @@ class MyONMTDataset(torchtext.data.Dataset):
 
     def _read_corpus_pool_file(self, path, truncate):
         with codecs.open(path, "r", "utf-8") as corpus_file:
+            all_questions = []
+            question = []
+            for line in corpus_file:
+                aux = line.split()
+                question.append(aux)
+
+                if line == "**** END OF QUESTION ****":
+                    all_questions.append(question.copy())
+                    question = []
             lines = (line.split() for line in corpus_file)
             if truncate:
                 lines = (line[:truncate] for line in lines)
             for line in lines:
-                yield extract_features(line)
+                if line != "**** END OF QUESTION ****":
+                    yield extract_features(line)
+
+
 
     def _construct_examples(self, lines, side):
+        assert side in ["src", "tgt", "pool"]
+        for line in lines:
+            words, feats, _ = line
+            example_dict = {side: words}
+            if feats:
+                prefix = side + "_feat_"
+                example_dict.update((prefix + str(j), f)
+                                    for j, f in enumerate(feats))
+            yield example_dict
+
+    def _construct_pool_examples(self, lines, side):
         assert side in ["src", "tgt", "pool"]
         for line in lines:
             words, feats, _ = line
@@ -534,8 +558,8 @@ class MyONMTDataset(torchtext.data.Dataset):
     @staticmethod
     def load_fields(vocab):
         vocab = dict(vocab)
-        fields = ONMTDataset.get_fields(
-            len(ONMTDataset.collect_features(vocab)))
+        fields = MyONMTDataset.get_fields(
+            len(MyONMTDataset.collect_features(vocab)))
         for k, v in vocab.items():
             # Hack. Can't pickle defaultdict :(
             v.stoi = defaultdict(lambda: 0, v.stoi)

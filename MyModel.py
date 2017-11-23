@@ -34,11 +34,11 @@ class MyRNN(nn.Module):
                             dropout=dropout,
                             bidirectional=bidirectional)
 
-    def forward(self, question, c_answers, n_answers, lengths):
+    def forward(self, question, c_answers, n_answers, lengths, batch_size):
         lengths = lengths.view(-1).tolist()
 
         # Process Question
-        hidden = self.init_hidden()
+        hidden = self.init_hidden(batch_size)
         q_size = question.size()
         question = question.view(q_size[0], -1)
         q_emb = self.embeddings(question)
@@ -50,7 +50,7 @@ class MyRNN(nn.Module):
         q_outputs, _ = torch.max(q_outputs, 0)  # MaxPooling
 
         # Process correct Answer
-        hidden = self.init_hidden()
+        hidden = self.init_hidden(batch_size)
         a_size = c_answers.size()
         c_answers = c_answers.view(a_size[0], -1)
         a_emb = self.embeddings(c_answers)
@@ -62,7 +62,7 @@ class MyRNN(nn.Module):
         a_outputs, _ = torch.max(a_outputs, 0)
 
         # Process negative answer
-        hidden = self.init_hidden()
+        hidden = self.init_hidden(batch_size)
         n_size = n_answers.size()
         n_answers = n_answers.view(n_size[0], -1)
         n_emb = self.embeddings(n_answers)
@@ -75,12 +75,12 @@ class MyRNN(nn.Module):
 
         return q_outputs, a_outputs, n_outputs
 
-    def init_hidden(self):
+    def init_hidden(self, batch_size):
         # h0 = Variable(torch.zeros(self.n_layers*self.n_direct, self.batch_size, self.hidden_size))
         # c0 = Variable(torch.zeros(self.n_layers*self.n_direct, self.batch_size, self.hidden_size))
 
-        h0 = torch.zeros(self.n_layers*self.n_direct, self.batch_size, self.hidden_size)
-        c0 = torch.zeros(self.n_layers*self.n_direct, self.batch_size, self.hidden_size)
+        h0 = torch.zeros(self.n_layers*self.n_direct, batch_size, self.hidden_size)
+        c0 = torch.zeros(self.n_layers*self.n_direct, batch_size, self.hidden_size)
 
         if self.use_cuda:
             h0 = h0.cuda()

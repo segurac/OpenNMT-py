@@ -11,11 +11,11 @@ def model_opts(parser):
     parser.add_argument('-model_type', default='text',
                         help="Type of encoder to use. Options are [text|img].")
     # Embedding Options
-    parser.add_argument('-word_vec_size', type=int, default=500,
+    parser.add_argument('-word_vec_size', type=int, default=100,
                         help='Word embedding for both.')
-    parser.add_argument('-src_word_vec_size', type=int, default=500,
+    parser.add_argument('-src_word_vec_size', type=int, default=100,
                         help='Src word embedding sizes')
-    parser.add_argument('-tgt_word_vec_size', type=int, default=500,
+    parser.add_argument('-tgt_word_vec_size', type=int, default=100,
                         help='Tgt word embedding sizes')
 
     parser.add_argument('-feat_merge', type=str, default='concat',
@@ -54,6 +54,9 @@ def model_opts(parser):
     parser.add_argument('-QALSTM', type=int, default=2,
                         help='Number of layers in QA-LSTM')
 
+    parser.add_argument('-QAbrnn', type=int, default=1,
+                        help="Bidirectional LSTM")
+
     parser.add_argument('-cnn_kernel_width', type=int, default=3,
                         help="""Size of windows in the cnn, the kernel_size is
                          (cnn_kernel_width, 1) in conv layer""")
@@ -64,7 +67,7 @@ def model_opts(parser):
                         help="""Feed the context vector at each time step as
                         additional input (via concatenation with the word
                         embeddings) to the decoder.""")
-    parser.add_argument('-QA_rnn_size', type=int, default=500,
+    parser.add_argument('-QA_rnn_size', type=int, default=141,
                         help='Size of QA-LSTM hidden states')
 
     parser.add_argument('-rnn_type', type=str, default='LSTM',
@@ -116,11 +119,11 @@ def preprocess_opts(parser):
     parser.add_argument('-pool_words_min_frequency', type=int, default=0)
 
     # Truncation options
-    parser.add_argument('-src_seq_length', type=int, default=50,
+    parser.add_argument('-src_seq_length', type=int, default=200,
                         help="Maximum source sequence length")
     parser.add_argument('-src_seq_length_trunc', type=int, default=0,
                         help="Truncate source sequence length.")
-    parser.add_argument('-tgt_seq_length', type=int, default=50,
+    parser.add_argument('-tgt_seq_length', type=int, default=200,
                         help="Maximum target sequence length to keep.")
     parser.add_argument('-tgt_seq_length_trunc', type=int, default=0,
                         help="Truncate target sequence length.")
@@ -189,7 +192,7 @@ def train_opts(parser):
                         help="""Maximum batches of words in a sequence to run
                         the generator on in parallel. Higher is faster, but
                         uses more memory.""")
-    parser.add_argument('-epochs', type=int, default=30,
+    parser.add_argument('-epochs', type=int, default=15,
                         help='Number of training epochs')
     parser.add_argument('-optim', default='sgd',
                         choices=['sgd', 'adagrad', 'adadelta', 'adam'],
@@ -239,13 +242,10 @@ def train_AS(parser):
     parser.add_argument('-vocab_size', type=int, default=50000,
                         help="Size of the source vocabulary")
 
-    parser.add_argument('-QAbrnn', type=int, default=1,
-                        help="Bidirectional LSTM")
-
     parser.add_argument('-pool_size', type=int, default=64,
                         help='Number of negative samples per positive samples')
 
-    parser.add_argument('-margin', type=int, default=10,
+    parser.add_argument('-margin', type=int, default=0.2,
                         help='Margin for the Hinge loss')
 
     # # Embedding Options
