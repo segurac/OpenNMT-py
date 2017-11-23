@@ -226,7 +226,7 @@ def main():
     valid = torch.load(opt.data + '.valid.pt')
     print(' * number of training sentences: %d' % len(train))
     print(' * maximum batch size: %d' % opt.batch_size)
-    print('Example', train.examples[10000-1].src)
+    # print('Example', train.examples[10000-1].src)
 
     checkpoint = None
     model_opt = opt

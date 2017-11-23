@@ -8,6 +8,8 @@ import torch
 import torchtext.data
 import torchtext.vocab
 
+from itertools import tee
+
 PAD_WORD = '<blank>'
 UNK = 0
 BOS_WORD = '<s>'
@@ -178,7 +180,7 @@ class ONMTDataset(torchtext.data.Dataset):
                 if "tgt" in example:
                     tgt = example["tgt"]
                     mask = torch.LongTensor(
-                            [0] + [src_vocab.stoi[w] for w in tgt] + [0])
+                        [0] + [src_vocab.stoi[w] for w in tgt] + [0])
                     example["alignment"] = mask
                 yield example
 
@@ -199,7 +201,7 @@ class ONMTDataset(torchtext.data.Dataset):
 
         def filter_pred(example):
             return 0 < len(example.src) <= opt.src_seq_length \
-                and 0 < len(example.tgt) <= opt.tgt_seq_length
+                   and 0 < len(example.tgt) <= opt.tgt_seq_length
 
         super(ONMTDataset, self).__init__(
             construct_final(chain([ex], examples)),
@@ -311,7 +313,7 @@ class ONMTDataset(torchtext.data.Dataset):
         #     include_lengths=True))]
 
         for j in range(nFeatures):
-            fields["src_feat_"+str(j)] = \
+            fields["src_feat_" + str(j)] = \
                 torchtext.data.Field(pad_token=PAD_WORD)
 
         fields["tgt"] = torchtext.data.Field(
@@ -412,8 +414,8 @@ class MyONMTDataset(torchtext.data.Dataset):
             tgt_examples = None
 
         pool_truncate = 0 if opt is None else opt.tgt_seq_length_trunc
-        pool_data = self._read_corpus_pool_file(pool_path, pool_truncate)
-        pool_examples = self._construct_examples(pool_data, "pool")
+        pool_data = self._read_corpus_file(pool_path, pool_truncate)
+        pool_examples = self._construct_pool_examples(pool_data, "pool")
 
         # examples: one for each src line or (src, tgt) line pair.
         # Each element is a dictionary whose keys represent at minimum
@@ -424,7 +426,6 @@ class MyONMTDataset(torchtext.data.Dataset):
                         for src, tgt, pool in zip(src_examples, tgt_examples, pool_examples))
         else:
             examples = src_examples
-
 
         def dynamic_dict(examples):
             for example in examples:
@@ -438,7 +439,7 @@ class MyONMTDataset(torchtext.data.Dataset):
                 if "tgt" in example:
                     tgt = example["tgt"]
                     mask = torch.LongTensor(
-                            [0] + [src_vocab.stoi[w] for w in tgt] + [0])
+                        [0] + [src_vocab.stoi[w] for w in tgt] + [0])
                     example["alignment"] = mask
 
                 if "pool" in example:
@@ -464,7 +465,7 @@ class MyONMTDataset(torchtext.data.Dataset):
 
         def filter_pred(example):
             return 0 < len(example.src) <= opt.src_seq_length \
-                and 0 < len(example.tgt) <= opt.tgt_seq_length
+                   and 0 < len(example.tgt) <= opt.tgt_seq_length
 
         super(MyONMTDataset, self).__init__(
             construct_final(chain([ex], examples)),
@@ -491,19 +492,18 @@ class MyONMTDataset(torchtext.data.Dataset):
             all_questions = []
             question = []
             for line in corpus_file:
-                aux = line.split()
-                question.append(aux)
-
-                if line == "**** END OF QUESTION ****":
+                if line == '**** END OF QUESTION ****\n':
                     all_questions.append(question.copy())
                     question = []
-            lines = (line.split() for line in corpus_file)
-            if truncate:
-                lines = (line[:truncate] for line in lines)
-            for line in lines:
-                if line != "**** END OF QUESTION ****":
-                    yield extract_features(line)
+                else:
+                    aux = line.split()
+                    if truncate:
+                        aux = aux[:truncate]
+                    question.append(aux)
 
+            for question in all_questions:
+                for line in question:
+                    yield extract_features(line)
 
 
     def _construct_examples(self, lines, side):
@@ -519,14 +519,15 @@ class MyONMTDataset(torchtext.data.Dataset):
 
     def _construct_pool_examples(self, lines, side):
         assert side in ["src", "tgt", "pool"]
+        questions = []
         for line in lines:
             words, feats, _ = line
-            example_dict = {side: words}
-            if feats:
-                prefix = side + "_feat_"
-                example_dict.update((prefix + str(j), f)
-                                    for j, f in enumerate(feats))
-            yield example_dict
+            if words == ('****', 'END', 'OF', 'QUESTION', '****'):
+                example_dict = {side: questions.copy()}
+                questions = []
+                yield example_dict
+            else:
+                questions.append(words)
 
     def __getstate__(self):
         return self.__dict__
@@ -607,7 +608,7 @@ class MyONMTDataset(torchtext.data.Dataset):
         #     include_lengths=True))]
 
         for j in range(nFeatures):
-            fields["src_feat_"+str(j)] = \
+            fields["src_feat_" + str(j)] = \
                 torchtext.data.Field(pad_token=PAD_WORD)
 
         fields["tgt"] = torchtext.data.Field(
@@ -659,8 +660,21 @@ class MyONMTDataset(torchtext.data.Dataset):
         fields["tgt"].build_vocab(train, max_size=opt.tgt_vocab_size,
                                   min_freq=opt.tgt_words_min_frequency)
 
+        backup = []
+        for x in train.examples:
+            backup.append(x.pool.copy())
+            auxpool = x.pool
+            newtuple = []
+            for line in auxpool:
+                for tok in line:
+                    newtuple.append(tok)
+            x.pool = tuple(newtuple)
+
         fields["pool"].build_vocab(train, max_size=opt.pool_vocab_size,
                                    min_freq=opt.pool_words_min_frequency)
+
+        for idx, x in enumerate(train.examples):
+            x.pool = backup[idx]
 
         # Merge the input and output vocabularies.
         if opt.share_vocab:
