@@ -415,7 +415,7 @@ class MyONMTDataset(torchtext.data.Dataset):
 
         pool_truncate = 0 if opt is None else opt.tgt_seq_length_trunc
         pool_data = self._read_corpus_file(pool_path, pool_truncate)
-        pool_examples = self._construct_pool_examples(pool_data, "pool")
+        pool_examples = self._construct_examples(pool_data, "pool")
 
         # examples: one for each src line or (src, tgt) line pair.
         # Each element is a dictionary whose keys represent at minimum
@@ -660,21 +660,8 @@ class MyONMTDataset(torchtext.data.Dataset):
         fields["tgt"].build_vocab(train, max_size=opt.tgt_vocab_size,
                                   min_freq=opt.tgt_words_min_frequency)
 
-        backup = []
-        for x in train.examples:
-            backup.append(x.pool.copy())
-            auxpool = x.pool
-            newtuple = []
-            for line in auxpool:
-                for tok in line:
-                    newtuple.append(tok)
-            x.pool = tuple(newtuple)
-
         fields["pool"].build_vocab(train, max_size=opt.pool_vocab_size,
                                    min_freq=opt.pool_words_min_frequency)
-
-        for idx, x in enumerate(train.examples):
-            x.pool = backup[idx]
 
         # Merge the input and output vocabularies.
         if opt.share_vocab:

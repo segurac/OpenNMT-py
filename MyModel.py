@@ -34,7 +34,7 @@ class MyRNN(nn.Module):
                             dropout=dropout,
                             bidirectional=bidirectional)
 
-    def forward(self, question, c_answers, n_answers, lengths, batch_size):
+    def forward(self, question, c_answers, n_answers, lengths, batch_size, isvalid):
         lengths = lengths.view(-1).tolist()
 
         # Process Question
@@ -62,16 +62,32 @@ class MyRNN(nn.Module):
         a_outputs, _ = torch.max(a_outputs, 0)
 
         # Process negative answer
-        hidden = self.init_hidden(batch_size)
-        n_size = n_answers.size()
-        n_answers = n_answers.view(n_size[0], -1)
-        n_emb = self.embeddings(n_answers)
-        s_len, batch, emb_dim = n_emb.size()
-        # n_packed_emb = pack(n_emb, lengths)
 
-        n_outputs, n_hidden_t = self.lstm(n_emb, hidden)
-        # n_outputs = unpack(n_a_outputs)[0]
-        n_outputs, _ = torch.max(n_outputs, 0)
+        if not isvalid:
+
+            n_size = n_answers.size()
+            hidden = self.init_hidden(batch_size)
+            n_answers = n_answers.view(n_size[0], -1)
+            n_emb = self.embeddings(n_answers)
+            s_len, batch, emb_dim = n_emb.size()
+            # n_packed_emb = pack(n_emb, lengths)
+
+            n_outputs, n_hidden_t = self.lstm(n_emb, hidden)
+            # n_outputs = unpack(n_a_outputs)[0]
+            n_outputs, _ = torch.max(n_outputs, 0)
+        else:
+
+            n_outputs = []
+            for answer in n_answers:
+                n_size = answer.size()
+                hidden = self.init_hidden(answer.size(1))
+                answer = answer.view(n_size[0], -1)
+                emb = self.embeddings(answer)
+
+                output, hidden = self.lstm(emb, hidden)
+                outputs, _ = torch.max(output, 0)
+
+                n_outputs.append(outputs)
 
         return q_outputs, a_outputs, n_outputs
 

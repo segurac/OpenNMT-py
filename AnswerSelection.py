@@ -18,6 +18,7 @@ from onmt.Utils import aeq, use_gpu
 from MyModel import MyRNN
 import opts
 import numpy as np
+import random
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -75,9 +76,9 @@ def make_valid_data_iter(valid_data, opt):
 
 def make_pool_data_iter(train_data, opt):
     return onmt.IO.MyOrderedIterator(
-                dataset=train_data, batch_size=opt.pool_size,
+                dataset=train_data, batch_size=opt.batch_size,
                 device=opt.gpuid[0] if opt.gpuid else -1,
-                repeat=True, train=True, sort=False, shuffle=True)
+                repeat=True, train=False, sort=False, shuffle=True)
 
 
 def load_fields(train, valid, checkpoint):
@@ -136,7 +137,7 @@ def my_trainer(train_iter, model, opt, epoch):
         n_answer = onmt.IO.make_features(batch, 'pool')
 
         model.zero_grad()
-        q, a, a_n = model.forward(question, c_answer, n_answer, src_lengths, batch.batch_size)
+        q, a, a_n = model.forward(question, c_answer, n_answer, src_lengths, batch.batch_size, 0)
 
         p_dist = cos_dist(q, a)
         n_dist = cos_dist(q, a_n)
@@ -155,7 +156,7 @@ def my_trainer(train_iter, model, opt, epoch):
         # Statistics
         running_loss += loss.data[0]
 
-        if (batch_idx+1) % 10 == 0:
+        if (batch_idx+1) % 100 == 0:
             print('\r Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * batch.batch_size, len(train_iter.dataset),
                        100. * batch_idx / len(train_iter), loss.data[0]))
@@ -163,7 +164,7 @@ def my_trainer(train_iter, model, opt, epoch):
     return running_loss/batch_idx
 
 
-def my_validator(valid_iter, model, opt):
+def my_validator(valid_iter, pool_iter, model, opt):
     criterion = nn.MarginRankingLoss(opt.margin)
     cos_dist = nn.CosineSimilarity()
     valid_loss = 0
@@ -178,20 +179,37 @@ def my_validator(valid_iter, model, opt):
         targets = Variable(targets, volatile=True)
         equals = equals.cuda()
 
+    pool_iter2 = iter(pool_iter)
     for batch_idx, batch in enumerate(valid_iter):
         target_size = batch.tgt.size(0)
 
         dec_state = None
         _, src_lengths = batch.src
 
+        batch_pool = next(pool_iter2)
         question = onmt.IO.make_features(batch, 'src')
         c_answer = onmt.IO.make_features(batch, 'tgt')
-        n_answer = onmt.IO.make_features(batch, 'pool')
 
-        q, a, a_n = model.forward(question, c_answer, n_answer, src_lengths, batch.batch_size)
+        n_answer = onmt.IO.make_features(batch_pool, 'pool')
+        list_answer = []
+        for k in range(0, opt.pool_size):
+            batch_pool = next(pool_iter2)
+            aux = onmt.IO.make_features(batch_pool, 'pool')
 
+            while aux.size(1) < question.size(1):
+                batch_pool = next(pool_iter2)
+                aux = onmt.IO.make_features(batch_pool, 'pool')
+
+            aux = aux[:, :question.size(1), :]
+            list_answer.append(aux)
+
+        q, a, a_n = model.forward(question, c_answer, list_answer, src_lengths, batch.batch_size, 1)
         p_dist = cos_dist(q, a)
-        n_dist = cos_dist(q, a_n)
+
+        list_n_dist = []
+        for x in a_n:
+            n_dist = cos_dist(q, x)
+            list_n_dist.append(n_dist)
 
         if batch.batch_size != previous:
             previous = batch.batch_size
@@ -202,12 +220,21 @@ def my_validator(valid_iter, model, opt):
                 targets = Variable(targets, volatile=True)
                 equals = equals.cuda()
 
-        valid_loss += criterion(p_dist, n_dist, targets).data[0]
+        aux_loss = 0
+        for x in list_n_dist:
+            aux_loss += criterion(p_dist, x, targets).data[0]
+
+        aux_loss /= opt.pool_size
+        valid_loss += aux_loss
 
         p_dist = p_dist.view(batch.batch_size, 1)
-        n_dist = n_dist.view(batch.batch_size, 1)
 
-        all_answers = torch.cat((p_dist, n_dist), 1)
+        all_answers = torch.cat((p_dist, list_n_dist[0].view(batch.batch_size, 1)), 1)
+        for i in range(1, len(list_n_dist)):
+            n_dist = list_n_dist[i]
+            n_dist = n_dist.view(batch.batch_size, 1)
+            all_answers = torch.cat((all_answers, n_dist), 1)
+
         pred = all_answers.data.min(1)[1]
         # pred = pred.cpu()
         correct += pred.eq(equals).sum()
@@ -252,7 +279,7 @@ def main():
     # Data iterators
     train_iter = make_train_data_iter(train, opt)
     valid_iter = make_valid_data_iter(valid, opt)
-    # pool_iter = make_pool_data_iter(train, opt)
+    pool_iter = make_pool_data_iter(train, opt)
 
     train_losses = []
     val_losses = []
@@ -263,12 +290,12 @@ def main():
     for epoch in range(opt.start_epoch, opt.epochs + 1):
         train_loss = my_trainer(train_iter, model, opt, epoch)
         train_losses.append(train_loss)
-        val_loss, val_acc = my_validator(valid_iter, model, opt)
+        val_loss, val_acc = my_validator(valid_iter, pool_iter, model, opt)
         val_losses.append(val_loss)
         val_accuracy.append(val_acc)
 
         print('\n' + '*' * 8 + 'Epoch ' + str(epoch) + '*' * 8 + '\n')
-        print('\r Train set: Average loss: {:.4f}'.format(train_loss))
+        # print('\r Train set: Average loss: {:.4f}'.format(train_loss))
         print('\r Valid set: Average loss: {:.4f}, Accuracy: {:.0f}%\n'.format(
             val_loss, 100.*val_acc))
         print('\n' + '*' * 22 + '\n')
@@ -285,7 +312,7 @@ def main():
         plt.savefig('Accuracy-vs-epoch.png')
         plt.close()
 
-        torch.save(model, 'AnswerSelectModel_epoch_' + str(epoch) + '_acc_' + str(val_acc) + '.pt')
+        torch.save(model, 'models/MovieDic/answer_select_epoch_' + str(epoch) + '_acc_' + str(val_acc) + '.pt')
 
 
 if __name__ == "__main__":

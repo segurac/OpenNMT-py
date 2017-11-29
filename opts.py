@@ -242,7 +242,7 @@ def train_AS(parser):
     parser.add_argument('-vocab_size', type=int, default=50000,
                         help="Size of the source vocabulary")
 
-    parser.add_argument('-pool_size', type=int, default=64,
+    parser.add_argument('-pool_size', type=int, default=500,
                         help='Number of negative samples per positive samples')
 
     parser.add_argument('-margin', type=int, default=0.2,
