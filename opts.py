@@ -51,7 +51,7 @@ def model_opts(parser):
                         help='Number of layers in the encoder')
     parser.add_argument('-dec_layers', type=int, default=2,
                         help='Number of layers in the decoder')
-    parser.add_argument('-QALSTM', type=int, default=2,
+    parser.add_argument('-layers_QALSTM', type=int, default=1,
                         help='Number of layers in QA-LSTM')
 
     parser.add_argument('-QAbrnn', type=int, default=1,
@@ -248,6 +248,14 @@ def train_AS(parser):
     parser.add_argument('-margin', type=int, default=0.2,
                         help='Margin for the Hinge loss')
 
+    parser.add_argument('-tradeoff', type=str, default=1,
+                        help="Trade-off between seq2seq model and AS model")
+
+    parser.add_argument('-n_filters', type=int, default=1000,
+                        help="Number of filters in the CNN")
+
+    parser.add_argument('-window_size', type=int, default=2,
+                        help='Size of filters')
     # # Embedding Options
     # parser.add_argument('-word_vec_size', type=int, default=-1,
     #                     help='Word embedding for both.')
@@ -317,6 +325,8 @@ def train_AS(parser):
 
 
 def translate_opts(parser):
+    parser.add_argument('-modelAS', required=True,
+                        help='Path to modelAS .pt file')
     parser.add_argument('-model', required=True,
                         help='Path to model .pt file')
     parser.add_argument('-src',   required=False,
@@ -329,7 +339,7 @@ def translate_opts(parser):
     parser.add_argument('-output', default='pred.txt',
                         help="""Path to output the predictions (each line will
                         be the decoded sequence""")
-    parser.add_argument('-beam_size',  type=int, default=5,
+    parser.add_argument('-beam_size',  type=int, default=15,
                         help='Beam size')
     parser.add_argument('-batch_size', type=int, default=30,
                         help='Batch size')
@@ -349,7 +359,7 @@ def translate_opts(parser):
                         help='Print best attn for each word')
     parser.add_argument('-dump_beam', type=str, default="",
                         help='File to dump beam information to.')
-    parser.add_argument('-n_best', type=int, default=1,
+    parser.add_argument('-n_best', type=int, default=50,
                         help="""If verbose is set, will output the n_best
                         decoded sentences""")
     parser.add_argument('-gpu', type=int, default=-1,

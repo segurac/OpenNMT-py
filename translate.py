@@ -10,6 +10,7 @@ import onmt
 import onmt.IO
 import opts
 from itertools import takewhile, count
+from MyModel import MyRNN
 try:
     from itertools import zip_longest
 except ImportError:
@@ -18,6 +19,7 @@ except ImportError:
 parser = argparse.ArgumentParser(description='translate.py')
 opts.add_md_help_argument(parser)
 opts.translate_opts(parser)
+opts.train_AS(parser)
 
 opt = parser.parse_args()
 if opt.batch_size != 1:
@@ -62,10 +64,13 @@ def main():
         batch_size=opt.batch_size, train=False, sort=False,
         shuffle=False)
 
+    modelAS = torch.load(opt.modelAS)
+    modelAS.eval()
+
     counter = count(1)
     for batch in test_data:
-        pred_batch, gold_batch, pred_scores, gold_scores, attn, src \
-            = translator.translate(batch, data)
+        pred_batch, gold_batch, pred_scores, gold_scores, attn, src, as_predict \
+            = translator.my_translate(batch, data, modelAS)
         pred_score_total += sum(score[0] for score in pred_scores)
         pred_words_total += sum(len(x[0]) for x in pred_batch)
         if opt.tgt:

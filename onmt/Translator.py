@@ -7,7 +7,8 @@ import onmt.ModelConstructor
 import onmt.modules
 import onmt.IO
 from onmt.Utils import use_gpu
-
+from MyModel import MyRNN
+import torch.nn as nn
 
 class Translator(object):
     def __init__(self, opt, dummy_opt={}):
@@ -221,3 +222,53 @@ class Translator(object):
                     self.buildTargetTokens(tgt[1:, b], src[:, b],
                                            None, None))
         return predBatch, goldBatch, predScore, goldScore, attn, src
+
+    def my_translate(self, batch, data, modelAS):
+        #  (1) convert words to indexes
+        batch_size = batch.batch_size
+        cos_dist = nn.CosineSimilarity()
+
+        #  (2) translate
+        pred, predScore, attn, goldScore = self.translateBatch(batch, data)
+        assert(len(goldScore) == len(pred))
+        pred, predScore, attn, goldScore, i = list(zip(
+            *sorted(zip(pred, predScore, attn, goldScore,
+                        batch.indices.data),
+                    key=lambda x: x[-1])))
+        inds, perm = torch.sort(batch.indices.data)
+
+        _, src_lengths = batch.src
+        question = onmt.IO.make_features(batch, 'src')
+
+        distances = torch.zeros(self.opt.n_best)
+        for idx, ans in enumerate(pred[0]):
+            ans = torch.LongTensor(ans)
+            ans = ans.view(ans.size(0), 1, 1)
+            ans = Variable(ans.cuda())
+            q, a = modelAS.forward(question, ans, None, src_lengths, batch_size, 1)
+            dist = cos_dist(q, a)
+            distances[idx] = dist.data[0] + self.opt.tradeoff*predScore[0][idx]
+
+        _, correct = torch.max(distances, 0)
+
+        correct = correct.numpy()
+        idx_correct = correct[0]
+        as_predict = pred[0][idx_correct]
+
+
+        #  (3) convert indexes to words
+        predBatch, goldBatch = [], []
+        src = batch.src[0].data.index_select(1, perm)
+        if self.opt.tgt:
+            tgt = batch.tgt.data.index_select(1, perm)
+        for b in range(batch_size):
+            src_vocab = data.src_vocabs[inds[b]]
+            predBatch.append(
+                [self.buildTargetTokens(pred[b][n], src[:, b],
+                                        attn[b][n], src_vocab)
+                 for n in range(self.opt.n_best)])
+            if self.opt.tgt:
+                goldBatch.append(
+                    self.buildTargetTokens(tgt[1:, b], src[:, b],
+                                           None, None))
+        return predBatch, goldBatch, predScore, goldScore, attn, src, predBatch[0][idx_correct]

@@ -15,7 +15,7 @@ import onmt.Models
 import onmt.ModelConstructor
 import onmt.modules
 from onmt.Utils import aeq, use_gpu
-from MyModel import MyRNN
+from MyModel import MyRNN, MyRNN_CNN
 import opts
 import numpy as np
 import random
@@ -115,7 +115,7 @@ def my_trainer(train_iter, model, opt, epoch):
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
     model.train()
-    targets = -torch.ones(opt.batch_size)
+    targets = torch.ones(opt.batch_size)
     previous = opt.batch_size
     if opt.gpuid:
         targets = targets.cuda()
@@ -136,6 +136,14 @@ def my_trainer(train_iter, model, opt, epoch):
         c_answer = onmt.IO.make_features(batch, 'tgt')
         n_answer = onmt.IO.make_features(batch, 'pool')
 
+        if question.size(0) == 1:
+            myzeros = torch.zeros((1, question.size(1), 1))
+            myzeros = myzeros.long()
+            myzeros = myzeros.cuda()
+
+            src_lengths = src_lengths + src_lengths
+            question.data = torch.cat((question.data, myzeros), 0)
+
         model.zero_grad()
         q, a, a_n = model.forward(question, c_answer, n_answer, src_lengths, batch.batch_size, 0)
 
@@ -143,7 +151,7 @@ def my_trainer(train_iter, model, opt, epoch):
         n_dist = cos_dist(q, a_n)
 
         if batch.batch_size != previous:
-            targets = -torch.ones(batch.batch_size)
+            targets = torch.ones(batch.batch_size)
             previous = batch.batch_size
             if opt.gpuid:
                 targets = targets.cuda()
@@ -171,7 +179,7 @@ def my_validator(valid_iter, pool_iter, model, opt):
     correct = 0
 
     model.eval()
-    targets = -torch.ones(opt.batch_size)
+    targets = torch.ones(opt.batch_size)
     equals = torch.zeros(opt.batch_size).long()
     previous = opt.batch_size
     if opt.gpuid:
@@ -179,71 +187,108 @@ def my_validator(valid_iter, pool_iter, model, opt):
         targets = Variable(targets, volatile=True)
         equals = equals.cuda()
 
-    pool_iter2 = iter(pool_iter)
+    list_q = []
+    list_a = []
     for batch_idx, batch in enumerate(valid_iter):
+
+        if batch_idx == 200:
+            break
+
         target_size = batch.tgt.size(0)
 
         dec_state = None
         _, src_lengths = batch.src
 
-        batch_pool = next(pool_iter2)
         question = onmt.IO.make_features(batch, 'src')
         c_answer = onmt.IO.make_features(batch, 'tgt')
 
-        n_answer = onmt.IO.make_features(batch_pool, 'pool')
-        list_answer = []
-        for k in range(0, opt.pool_size):
-            batch_pool = next(pool_iter2)
-            aux = onmt.IO.make_features(batch_pool, 'pool')
+        if question.size(0) == 1:
+            myzeros = torch.zeros((1, question.size(1), 1))
+            myzeros = myzeros.long()
+            myzeros = myzeros.cuda()
 
-            while aux.size(1) < question.size(1):
-                batch_pool = next(pool_iter2)
-                aux = onmt.IO.make_features(batch_pool, 'pool')
+            src_lengths = src_lengths + src_lengths
+            question.data = torch.cat((question.data, myzeros), 0)
+        # n_answer = onmt.IO.make_features(batch, 'pool')
 
-            aux = aux[:, :question.size(1), :]
-            list_answer.append(aux)
+        q, a = model.forward(question, c_answer, None, src_lengths, batch.batch_size, 1)
 
-        q, a, a_n = model.forward(question, c_answer, list_answer, src_lengths, batch.batch_size, 1)
+        list_q.append(q)
+        list_a.append(a)
+
+        if (batch_idx + 1) % 800 == 0:
+            print('\rProcessing validation... {:.0f}%'.format(100. * batch_idx / len(valid_iter)))
+
+    # all_q = torch.cat((list_q[0], list_q[1]), 0)
+    # all_a = torch.cat((list_a[0], list_a[1]), 0)
+    # for i in range(2, len(list_q)):
+    #     all_q = torch.cat((all_q, list_q[i]), 0)
+    #     all_a = torch.cat((all_a, list_a[i]), 0)
+
+    for i in range(0, len(list_q)):
+        q = list_q[i]
+        a = list_a[i]
+
         p_dist = cos_dist(q, a)
 
-        list_n_dist = []
-        for x in a_n:
-            n_dist = cos_dist(q, x)
-            list_n_dist.append(n_dist)
+        list_n_a = []
+        for j in range(0, opt.pool_size):
+            n_a = make_good_batch(list_q, q.size(0))
+            n_dist = cos_dist(q, n_a)
+            list_n_a.append(n_dist)
 
-        if batch.batch_size != previous:
-            previous = batch.batch_size
-            targets = -torch.ones(batch.batch_size)
-            equals = torch.zeros(batch.batch_size).long()
+        if q.size(0) != previous:
+            previous = q.size(0)
+            targets = torch.ones(previous)
+            equals = torch.zeros(previous).long()
             if opt.gpuid:
                 targets = targets.cuda()
                 targets = Variable(targets, volatile=True)
                 equals = equals.cuda()
 
         aux_loss = 0
-        for x in list_n_dist:
+        for x in list_n_a:
             aux_loss += criterion(p_dist, x, targets).data[0]
-
         aux_loss /= opt.pool_size
         valid_loss += aux_loss
 
-        p_dist = p_dist.view(batch.batch_size, 1)
-
-        all_answers = torch.cat((p_dist, list_n_dist[0].view(batch.batch_size, 1)), 1)
-        for i in range(1, len(list_n_dist)):
-            n_dist = list_n_dist[i]
-            n_dist = n_dist.view(batch.batch_size, 1)
+        p_dist = p_dist.view(q.size(0), 1)
+        all_answers = torch.cat((p_dist, list_n_a[0].view(q.size(0), 1)), 1)
+        for k in range(1, len(list_n_a)):
+            n_dist = list_n_a[k]
+            n_dist = n_dist.view(q.size(0), 1)
             all_answers = torch.cat((all_answers, n_dist), 1)
 
-        pred = all_answers.data.min(1)[1]
-        # pred = pred.cpu()
+        aux = all_answers.data
+        _, pred = torch.max(aux, 1)
         correct += pred.eq(equals).sum()
 
-        if (batch_idx + 1) % 20 == 0:
-            print('\rProcessing validation... {:.0f}%'.format(100. * batch_idx / len(valid_iter)))
+        if i % 800 == 0:
+            print('\rComputing validation... {:.0f}%'.format(100. * i / len(list_q)))
 
     return valid_loss/len(valid_iter), correct/len(valid_iter.dataset)
 
+
+def make_random_batch(all_q, batch_size):
+    idx = np.random.randint(0, all_q.size(0), size=batch_size)
+    n_a = torch.index_select(all_q, 0, torch.from_numpy(idx).cuda())
+
+    return n_a
+
+
+def make_good_batch(list_q, batch_size):
+    rndBatch = np.random.randint(0, len(list_q))
+    question = list_q[rndBatch]
+    rndQuestion = np.random.randint(0, question.size(0), size=1)
+    n_a = torch.index_select(question, 0, torch.from_numpy(rndQuestion).cuda())
+    for idx in range(0, batch_size-1):
+        rndBatch = np.random.randint(0, len(list_q))
+        question = list_q[rndBatch]
+        rndQuestion = np.random.randint(0, question.size(0), size=1)
+        aux = torch.index_select(question, 0, torch.from_numpy(rndQuestion).cuda())
+        n_a = torch.cat((n_a, aux), 0)
+
+    return n_a
 
 def main():
     opt.batch_size = 20
@@ -268,8 +313,8 @@ def main():
         print(' * src feature %d size = %d' % (j, len(fields[feat].vocab)))
 
     # Build Model
-    model = MyRNN(opt.vocab_size, opt.word_vec_size,
-                  opt.QA_rnn_size, opt.QALSTM, opt.dropout,
+    model = MyRNN_CNN(opt.vocab_size, opt.word_vec_size,
+                  opt.QA_rnn_size, opt.n_filters, opt.window_size, opt.layers_QALSTM, opt.dropout,
                   opt.batch_size, opt.QAbrnn, use_cuda=opt.gpuid)
 
     print(model)
@@ -288,8 +333,8 @@ def main():
     print(5*"*" + " Start training " + 5*"*")
     print(26*"*")
     for epoch in range(opt.start_epoch, opt.epochs + 1):
-        train_loss = my_trainer(train_iter, model, opt, epoch)
-        train_losses.append(train_loss)
+        # train_loss = my_trainer(train_iter, model, opt, epoch)
+        # train_losses.append(train_loss)
         val_loss, val_acc = my_validator(valid_iter, pool_iter, model, opt)
         val_losses.append(val_loss)
         val_accuracy.append(val_acc)
@@ -304,15 +349,15 @@ def main():
         plt.plot(train_losses, label='train')
         plt.plot(val_losses, label='valid')
         plt.legend()
-        plt.savefig('loss-vs-epoch.png')
+        plt.savefig('models/OpenSubEN/loss-vs-epoch.png')
         plt.close()
 
         plt.figure()
         plt.plot(val_accuracy, label='valid')
-        plt.savefig('Accuracy-vs-epoch.png')
+        plt.savefig('models/OpenSubEN/Accuracy-vs-epoch.png')
         plt.close()
 
-        torch.save(model, 'models/MovieDic/answer_select_epoch_' + str(epoch) + '_acc_' + str(val_acc) + '.pt')
+        torch.save(model, 'models/OpenSubEN/answer_select_epoch_' + str(epoch) + '_acc_' + str(val_acc) + '.pt')
 
 
 if __name__ == "__main__":
