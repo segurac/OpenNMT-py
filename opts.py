@@ -256,6 +256,8 @@ def train_AS(parser):
 
     parser.add_argument('-window_size', type=int, default=2,
                         help='Size of filters')
+    parser.add_argument('-name', type=str,
+                        help='Simulation name')
     # # Embedding Options
     # parser.add_argument('-word_vec_size', type=int, default=-1,
     #                     help='Word embedding for both.')

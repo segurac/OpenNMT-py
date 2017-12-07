@@ -125,8 +125,8 @@ def my_trainer(train_iter, model, opt, epoch):
     for batch_idx, batch in enumerate(train_iter):
         target_size = batch.tgt.size(0)
 
-        if np.random.randint(0, 50) != 0:
-            continue
+        # if np.random.randint(0, 100) != 0:
+        #     continue
 
         dec_state = None
         _, src_lengths = batch.src
@@ -158,7 +158,7 @@ def my_trainer(train_iter, model, opt, epoch):
         # Statistics
         running_loss += loss.data[0]
 
-        if (batch_idx+1) % 100 == 0:
+        if (batch_idx+1) % 1 == 0:
             print('\r Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * batch.batch_size, len(train_iter.dataset),
                        100. * batch_idx / len(train_iter), loss.data[0]))
@@ -185,8 +185,8 @@ def my_validator(valid_iter, pool_iter, model, opt):
     list_a = []
     for batch_idx, batch in enumerate(valid_iter):
 
-        if np.random.randint(0, 50) != 0:
-            continue
+        # if np.random.randint(0, 100) != 0:
+        #     continue
 
         target_size = batch.tgt.size(0)
 
@@ -198,15 +198,14 @@ def my_validator(valid_iter, pool_iter, model, opt):
 
         if question.size(0) == 1:
             continue
-        # n_answer = onmt.IO.make_features(batch, 'pool')
 
         q, a = model.forward(question, c_answer, None, src_lengths, batch.batch_size, 1)
 
         list_q.append(q)
         list_a.append(a)
 
-        if (batch_idx + 1) % 20 == 0:
-            print('\rProcessing validation... {:.0f}%'.format(100. * batch_idx / len(valid_iter)))
+        if (batch_idx + 1) % 1 == 0:
+            print('\rProcessing validation... {} / {}'.format(batch_idx,  len(valid_iter)))
 
     for i in range(0, len(list_q)):
         q = list_q[i]
@@ -216,7 +215,7 @@ def my_validator(valid_iter, pool_iter, model, opt):
 
         list_n_a = []
         for j in range(0, opt.pool_size):
-            n_a = make_good_batch(list_q, q.size(0))
+            n_a = make_random_batch(list_q, q.size(0))
             n_dist = cos_dist(q, n_a)
             list_n_a.append(n_dist)
 
@@ -246,35 +245,30 @@ def my_validator(valid_iter, pool_iter, model, opt):
         _, pred = torch.max(aux, 1)
         correct += pred.eq(equals).sum()
 
-        if i % 20 == 0:
-            print('\rComputing validation... {:.0f}%'.format(100. * i / len(list_q)))
+        if i % 1 == 0:
+            print('\rComputing validation... {} / {}%'.format(i, len(list_q)))
 
     return valid_loss/len(valid_iter), correct/len(valid_iter.dataset)
 
 
-def make_random_batch(all_q, batch_size):
-    idx = np.random.randint(0, all_q.size(0), size=batch_size)
-    n_a = torch.index_select(all_q, 0, torch.from_numpy(idx).cuda())
-
-    return n_a
-
-
-def make_good_batch(list_q, batch_size):
-    rndBatch = np.random.randint(0, len(list_q))
-    question = list_q[rndBatch]
-    rndQuestion = np.random.randint(0, question.size(0), size=1)
-    n_a = torch.index_select(question, 0, torch.from_numpy(rndQuestion).cuda())
+def make_random_batch(list_q, batch_size):
+    rnd_batch = np.random.randint(0, len(list_q))
+    question = list_q[rnd_batch]
+    rnd_question = np.random.randint(0, question.size(0), size=1)
+    n_a = torch.index_select(question, 0, torch.from_numpy(rnd_question).cuda())
     for idx in range(0, batch_size-1):
-        rndBatch = np.random.randint(0, len(list_q))
-        question = list_q[rndBatch]
-        rndQuestion = np.random.randint(0, question.size(0), size=1)
-        aux = torch.index_select(question, 0, torch.from_numpy(rndQuestion).cuda())
+        rnd_batch = np.random.randint(0, len(list_q))
+        question = list_q[rnd_batch]
+        rnd_question = np.random.randint(0, question.size(0), size=1)
+        aux = torch.index_select(question, 0, torch.from_numpy(rnd_question).cuda())
         n_a = torch.cat((n_a, aux), 0)
 
     return n_a
 
 def main():
     opt.batch_size = 20
+    db_name = os.path.split(os.path.dirname(opt.data))[-1]
+
     # Load train and validate data.
     print("Loading train and validate data from '%s'" % opt.data)
     train = torch.load(opt.data + '.train.pt')
@@ -296,9 +290,13 @@ def main():
         print(' * src feature %d size = %d' % (j, len(fields[feat].vocab)))
 
     # Build Model
-    model = MyRNN_CNN(opt.vocab_size, opt.word_vec_size,
-                  opt.QA_rnn_size, opt.n_filters, opt.window_size, opt.layers_QALSTM, opt.dropout,
+    model = MyRNN(opt.vocab_size, opt.word_vec_size,
+                  opt.QA_rnn_size, opt.layers_QALSTM, opt.dropout,
                   opt.batch_size, opt.QAbrnn, use_cuda=opt.gpuid)
+
+    # model = MyRNN_CNN(opt.vocab_size, opt.word_vec_size,
+    #               opt.QA_rnn_size, opt.n_filters, opt.window_size, opt.layers_QALSTM, opt.dropout,
+    #               opt.batch_size, opt.QAbrnn, use_cuda=opt.gpuid)
 
     print(model)
     if opt.gpuid:
@@ -312,9 +310,9 @@ def main():
     train_losses = []
     val_losses = []
     val_accuracy = []
-    print(26*"*")
-    print(5*"*" + " Start training " + 5*"*")
-    print(26*"*")
+    print(26*"*"), print(5*"*" + " Start training " + 5*"*"), print(26*"*")
+    result_file = open('models/' + db_name + '/results_' + opt.name + '.txt', 'a')
+
     for epoch in range(opt.start_epoch, opt.epochs + 1):
         train_loss = my_trainer(train_iter, model, opt, epoch)
         train_losses.append(train_loss)
@@ -332,15 +330,19 @@ def main():
         plt.plot(train_losses, label='train')
         plt.plot(val_losses, label='valid')
         plt.legend()
-        plt.savefig('models/OpenSubEN/loss-vs-epoch.png')
+        plt.savefig('models/' + db_name + '/' + opt.name + '_loss-vs-epoch.png')
         plt.close()
 
         plt.figure()
         plt.plot(val_accuracy, label='valid')
-        plt.savefig('models/OpenSubEN/Accuracy-vs-epoch.png')
+        plt.savefig('models/' + db_name + '/' + opt.name + '_Accuracy-vs-epoch.png')
         plt.close()
 
-        torch.save(model, 'models/OpenSubEN/answer_select_epoch_' + str(epoch) + '_acc_' + str(val_acc) + '.pt')
+        torch.save(model, 'models/' + db_name + '/' + opt.name + '_' + str(epoch) + '_acc_' + str(val_acc) + '.pt')
+        result_file.write("{} \r {} \r {}\n".format(train_loss, val_loss, val_acc))
+        result_file.flush()
+
+    result_file.close()
 
 
 if __name__ == "__main__":
