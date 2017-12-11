@@ -245,6 +245,12 @@ def train_AS(parser):
     parser.add_argument('-pool_size', type=int, default=500,
                         help='Number of negative samples per positive samples')
 
+    parser.add_argument('-fraction_db', type=float, default=1,
+                        help='Fraction of the database to use')
+
+    parser.add_argument('-n_batch_valid', type=int, default=1000,
+                        help='Number of batches before computing validation')
+
     parser.add_argument('-margin', type=int, default=0.2,
                         help='Margin for the Hinge loss')
 
@@ -256,8 +262,15 @@ def train_AS(parser):
 
     parser.add_argument('-window_size', type=int, default=2,
                         help='Size of filters')
+
+    parser.add_argument('-attention_size', type=int, default=100,
+                        help='Size of Attention FC module')
+
     parser.add_argument('-name', type=str,
                         help='Simulation name')
+
+    parser.add_argument('-network', type=str, default='RNN',
+                        choices=['RNN', 'CNN', 'Attention_RNN', 'Attention_CNN'], help='Type of network')
     # # Embedding Options
     # parser.add_argument('-word_vec_size', type=int, default=-1,
     #                     help='Word embedding for both.')

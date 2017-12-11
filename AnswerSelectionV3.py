@@ -14,7 +14,7 @@ import onmt.Models
 import onmt.ModelConstructor
 import onmt.modules
 from onmt.Utils import aeq, use_gpu
-from MyModel import MyRNN, MyRNN_CNN, MyAttetion_RNN_CNN
+from MyModel import MyRNN, MyRNN_CNN, MyAttetion_RNN_CNN, MyAttentionRNN
 import opts
 import numpy as np
 import time
@@ -176,76 +176,88 @@ def my_validator(valid_iter, pool_iter, model, opt):
 
     list_q = []
     list_a = []
+
+    get_out = False
+    num_batch = 0
+    num_samples = 0
     for batch_idx, batch in enumerate(valid_iter):
 
         if batch_idx > opt.fraction_db*len(valid_iter):
-            break
+            get_out = True
 
         _, src_lengths = batch.src
 
         question = onmt.IO.make_features(batch, 'src')
         c_answer = onmt.IO.make_features(batch, 'tgt')
 
-        if question.size(0) == 1:
-            continue
+        if question.size(0) > 1:
+            q, a = model.forward(question, c_answer, None, src_lengths, batch.batch_size, 1)
 
-        q, a = model.forward(question, c_answer, None, src_lengths, batch.batch_size, 1)
-
-        list_q.append(q)
-        list_a.append(a)
+            list_q.append(q)
+            list_a.append(a)
+            num_batch += 1
+            num_samples += batch.batch_size
 
         if batch_idx % 200 == 0:
             print('\rProcessing validation... {} / {}'.format(batch_idx,  len(valid_iter)))
 
-    t0 = time.time()
-    all_q = torch.cat((list_q[0], list_q[1]), 0)
-    for i in range(2, len(list_q)):
-        all_q = torch.cat((all_q, list_q[i]), 0)
-    print("Code 1: {}".format(time.time()-t0))
+        # Every n batches compute validation
+        if (batch_idx + 1) % opt.n_batch_valid != 0 and batch_idx != (len(valid_iter)-1) and get_out is False:
+            continue
 
-    rnd_idx = np.random.randint(0, all_q.size(0),
-                                size=(opt.batch_size, opt.pool_size, len(list_q)))
+        print("Computing validation...")
+        all_q = torch.cat((list_q[0], list_q[1]), 0)
+        for i in range(2, len(list_q)):
+            all_q = torch.cat((all_q, list_q[i]), 0)
 
-    rnd_idx_t = torch.from_numpy(rnd_idx).cuda()
+        rnd_idx = np.random.randint(0, all_q.size(0),
+                                    size=(opt.batch_size, opt.pool_size, len(list_q)))
+        rnd_idx_t = torch.from_numpy(rnd_idx).cuda()
 
-    for i in range(0, len(list_q)):
-        q = list_q[i]
-        a = list_a[i]
+        for i in range(0, len(list_q)):
+            q = list_q[i]
+            a = list_a[i]
 
-        p_dist = cos_dist(q, a)
+            p_dist = cos_dist(q, a)
 
+            list_n_a = []
+            for j in range(0, opt.pool_size):
+                n_a = make_random_batch(all_q, rnd_idx_t[:q.size(0), j, i])
+                n_dist = cos_dist(q, n_a)
+                list_n_a.append(n_dist)
+
+            targets.data.resize_(q.size(0))
+            targets.data.fill_(1)
+            equals.resize_(q.size(0))
+            equals.fill_(0)
+
+            aux_loss = 0
+            for neg in list_n_a:
+                aux_loss += criterion(p_dist, neg, targets).data[0]
+            aux_loss /= opt.pool_size
+            valid_loss += aux_loss
+
+            p_dist = p_dist.view(q.size(0), 1)
+            all_answers = torch.cat((p_dist, list_n_a[0].view(q.size(0), 1)), 1)
+            for k in range(1, len(list_n_a)):
+                n_dist = list_n_a[k]
+                n_dist = n_dist.view(q.size(0), 1)
+                all_answers = torch.cat((all_answers, n_dist), 1)
+
+            aux = all_answers.data
+            _, pred = torch.max(aux, 1)
+            correct += pred.eq(equals).sum()
+
+        # Free memory
+        list_q = []
+        list_a = []
         list_n_a = []
-        for j in range(0, opt.pool_size):
-            n_a = make_random_batch(all_q, rnd_idx_t[:q.size(0), j, i])
-            n_dist = cos_dist(q, n_a)
-            list_n_a.append(n_dist)
+        del all_answers
 
-        targets.data.resize_(q.size(0))
-        targets.data.fill_(1)
-        equals.resize_(q.size(0))
-        equals.fill_(0)
+        if get_out is True:
+            break
 
-        aux_loss = 0
-        for neg in list_n_a:
-            aux_loss += criterion(p_dist, neg, targets).data[0]
-        aux_loss /= opt.pool_size
-        valid_loss += aux_loss
-
-        p_dist = p_dist.view(q.size(0), 1)
-        all_answers = torch.cat((p_dist, list_n_a[0].view(q.size(0), 1)), 1)
-        for k in range(1, len(list_n_a)):
-            n_dist = list_n_a[k]
-            n_dist = n_dist.view(q.size(0), 1)
-            all_answers = torch.cat((all_answers, n_dist), 1)
-
-        aux = all_answers.data
-        _, pred = torch.max(aux, 1)
-        correct += pred.eq(equals).sum()
-
-        if i % 200 == 0:
-            print('\rComputing validation... {} / {}%'.format(i, len(list_q)))
-
-    return valid_loss/len(valid_iter), correct/len(valid_iter.dataset)
+    return valid_loss/num_batch, correct/num_samples
 
 
 def make_random_batch(all_q, rnd_idx):
@@ -286,7 +298,11 @@ def main():
         model = MyRNN_CNN(opt.vocab_size, opt.word_vec_size,
                           opt.QA_rnn_size, opt.n_filters, opt.window_size, opt.layers_QALSTM, opt.dropout,
                           opt.batch_size, opt.QAbrnn, use_cuda=opt.gpuid)
-    else:
+    elif opt.network == 'Attention_RNN':
+        model = MyAttentionRNN(opt.vocab_size, opt.word_vec_size,
+                               opt.QA_rnn_size, opt.layers_QALSTM,
+                               opt.attention_size, opt.dropout, opt.batch_size, opt.QAbrnn, use_cuda=opt.gpuid)
+    elif opt.network == 'Attention_CNN':
         model = MyAttetion_RNN_CNN(opt.vocab_size, opt.word_vec_size,
                                    opt.QA_rnn_size, opt.n_filters, opt.window_size, opt.layers_QALSTM,
                                    opt.attention_size, opt.dropout, opt.batch_size, opt.QAbrnn, use_cuda=opt.gpuid)
