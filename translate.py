@@ -64,8 +64,9 @@ def main():
         batch_size=opt.batch_size, train=False, sort=False,
         shuffle=False)
 
-    modelAS = torch.load(opt.modelAS)
+    modelAS = torch.load(opt.modelAS, map_location=lambda storage, loc: storage)
     modelAS.eval()
+    modelAS.use_cuda = None
 
     counter = count(1)
     for batch in test_data:
@@ -115,9 +116,11 @@ def main():
 
                 if len(n_best_preds) > 1:
                     print('\nBEST HYP:')
-                    for score, sent in zip(pred_score, n_best_preds):
-                        os.write(1, bytes("[%.4f] %s\n" % (score, sent),
+                    for j, (score, sent) in enumerate(zip(pred_score, n_best_preds)):
+                        os.write(1, bytes("[% d][%.4f] %s\n" % (j, score, sent),
                                  'UTF-8'))
+        print(100*'-')
+        print(100 * '-')
 
     report_score('PRED', pred_score_total, pred_words_total)
     if opt.tgt:

@@ -9,8 +9,7 @@ import onmt.Models
 import onmt.modules
 from onmt.IO import ONMTDataset
 from onmt.Models import NMTModel, MeanEncoder, RNNEncoder, \
-                        StdRNNDecoder, InputFeedRNNDecoder, \
-                        AnsSelectModel
+                        StdRNNDecoder, InputFeedRNNDecoder, InputFeedRNNDecoderNoForcing
 from onmt.modules import Embeddings, ImageEncoder, CopyGenerator, \
                          TransformerEncoder, TransformerDecoder, \
                          CNNEncoder, CNNDecoder
@@ -72,7 +71,7 @@ def make_encoder(opt, embeddings):
                           opt.rnn_size, opt.dropout, embeddings)
 
 
-def make_decoder(opt, embeddings):
+def make_decoder(opt, embeddings, eos_token):
     """
     Various decoder dispatcher function.
     Args:
@@ -89,14 +88,15 @@ def make_decoder(opt, embeddings):
                           opt.cnn_kernel_width, opt.dropout,
                           embeddings)
     elif opt.input_feed:
-        return InputFeedRNNDecoder(opt.rnn_type, opt.brnn,
+        return InputFeedRNNDecoderNoForcing(opt.rnn_type, opt.brnn,
                                    opt.dec_layers, opt.rnn_size,
                                    opt.global_attention,
                                    opt.coverage_attn,
                                    opt.context_gate,
                                    opt.copy_attn,
                                    opt.dropout,
-                                   embeddings)
+                                   embeddings,
+                                   eos_token)
     else:
         return StdRNNDecoder(opt.rnn_type, opt.brnn,
                              opt.dec_layers, opt.rnn_size,
@@ -106,52 +106,6 @@ def make_decoder(opt, embeddings):
                              opt.copy_attn,
                              opt.dropout,
                              embeddings)
-
-
-def make_base_model_as(model_opt, fields, gpu, checkpoint=None):
-    # Make encoder "Question encoder and Answer encoder share weights"
-    src_dict = fields["src"].vocab
-    print('Length dict {}'.format(len(src_dict)))
-    feature_dicts = ONMTDataset.collect_feature_dicts(fields)
-    src_embeddings = make_embeddings(model_opt, src_dict,
-                                     feature_dicts)
-    encoder = make_encoder(model_opt, src_embeddings)
-
-    model = AnsSelectModel(encoder)
-
-    # Make Generator.
-    if not model_opt.copy_attn:
-        generator = nn.Sequential(
-            nn.Linear(model_opt.rnn_size, len(fields["tgt"].vocab)),
-            nn.LogSoftmax())
-    else:
-        generator = CopyGenerator(model_opt, fields["src"].vocab,
-                                  fields["tgt"].vocab)
-
-    # Load the model states from checkpoint or initialize them.
-    if checkpoint is not None:
-        print('Loading model parameters.')
-        model.load_state_dict(checkpoint['model'])
-    else:
-        if model_opt.param_init != 0.0:
-            print('Intializing model parameters.')
-            for p in model.parameters():
-                p.data.uniform_(-model_opt.param_init, model_opt.param_init)
-            for p in generator.parameters():
-                p.data.uniform_(-model_opt.param_init, model_opt.param_init)
-        model.encoder.embeddings.load_pretrained_vectors(
-            model_opt.pre_word_vecs_enc, model_opt.fix_word_vecs_enc)
-
-    # Add generator to model (this registers it as parameter of model).
-    model.generator = generator
-
-    # Make the whole model leverage GPU if indicated to do so.
-    if gpu:
-        model.cuda()
-    else:
-        model.cpu()
-
-    return model
 
 
 def make_base_model(model_opt, fields, gpu, checkpoint=None):
@@ -184,6 +138,11 @@ def make_base_model(model_opt, fields, gpu, checkpoint=None):
 
     # Make decoder.
     tgt_dict = fields["tgt"].vocab
+
+    # EOS TOKEN
+    eos_token_str = fields["tgt"].eos_token
+    eos_token = tgt_dict.itos.index(eos_token_str)
+
     # TODO: prepare for a future where tgt features are possible.
     feature_dicts = []
     tgt_embeddings = make_embeddings(model_opt, tgt_dict,
@@ -193,7 +152,7 @@ def make_base_model(model_opt, fields, gpu, checkpoint=None):
     if model_opt.share_embeddings:
         tgt_embeddings.word_lut.weight = src_embeddings.word_lut.weight
 
-    decoder = make_decoder(model_opt, tgt_embeddings)
+    decoder = make_decoder(model_opt, tgt_embeddings, eos_token)
 
     # Make NMTModel(= encoder + decoder).
     model = NMTModel(encoder, decoder)

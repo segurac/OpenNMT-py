@@ -254,7 +254,7 @@ def train_AS(parser):
     parser.add_argument('-margin', type=int, default=0.2,
                         help='Margin for the Hinge loss')
 
-    parser.add_argument('-tradeoff', type=str, default=1,
+    parser.add_argument('-tradeoff', type=float, default=1,
                         help="Trade-off between seq2seq model and AS model")
 
     parser.add_argument('-n_filters', type=int, default=1000,
@@ -263,7 +263,7 @@ def train_AS(parser):
     parser.add_argument('-window_size', type=int, default=2,
                         help='Size of filters')
 
-    parser.add_argument('-attention_size', type=int, default=100,
+    parser.add_argument('-attention_size', type=int, default=3,
                         help='Size of Attention FC module')
 
     parser.add_argument('-name', type=str,

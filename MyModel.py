@@ -149,7 +149,8 @@ class MyRNN_CNN(nn.Module):
 
         cnn_out = F.tanh(self.conv1(q_outputs))
         q_outputs = F.max_pool2d(cnn_out, (1, cnn_out.size(3)))
-        q_outputs = torch.squeeze(q_outputs)
+        q_outputs = torch.squeeze(q_outputs, dim=3)
+        q_outputs = torch.squeeze(q_outputs, dim=2)
 
         # Process correct Answer
         hidden = self.init_hidden(batch_size)
@@ -166,7 +167,8 @@ class MyRNN_CNN(nn.Module):
 
         a_outputs = F.tanh(self.conv1(a_outputs))
         a_outputs = F.max_pool2d(a_outputs, (1, a_outputs.size(3)))
-        a_outputs = torch.squeeze(a_outputs)
+        a_outputs = torch.squeeze(a_outputs, dim=3)
+        a_outputs = torch.squeeze(a_outputs, dim=2)
 
         # Process negative answer
         if not isvalid:
@@ -184,7 +186,8 @@ class MyRNN_CNN(nn.Module):
 
             n_outputs = F.tanh(self.conv1(n_outputs))
             n_outputs = F.max_pool2d(n_outputs, (1, n_outputs.size(3)))
-            n_outputs = torch.squeeze(n_outputs)
+            n_outputs = torch.squeeze(n_outputs, dim=3)
+            n_outputs = torch.squeeze(n_outputs, dim=2)
 
             return q_outputs, a_outputs, n_outputs
         else:
@@ -267,7 +270,8 @@ class MyAttetion_RNN_CNN(nn.Module):
 
         cnn_out = F.tanh(self.conv1(q_outputs))
         q_outputs = F.max_pool2d(cnn_out, (1, cnn_out.size(3)))
-        q_outputs = torch.squeeze(q_outputs)
+        q_outputs = torch.squeeze(q_outputs, dim=3)
+        q_outputs = torch.squeeze(q_outputs, dim=2)
 
         # Process correct Answer
         hidden = self.init_hidden(batch_size)
@@ -296,7 +300,8 @@ class MyAttetion_RNN_CNN(nn.Module):
 
         a_outputs = F.tanh(self.conv1(a_outputs))
         a_outputs = F.max_pool2d(a_outputs, (1, a_outputs.size(3)))
-        a_outputs = torch.squeeze(a_outputs)
+        a_outputs = torch.squeeze(a_outputs, dim=3)
+        a_outputs = torch.squeeze(a_outputs, dim=2)
 
         # Process negative answer
         if not isvalid:
@@ -321,7 +326,8 @@ class MyAttetion_RNN_CNN(nn.Module):
 
             n_outputs = F.tanh(self.conv1(n_outputs))
             n_outputs = F.max_pool2d(n_outputs, (1, n_outputs.size(3)))
-            n_outputs = torch.squeeze(n_outputs)
+            n_outputs = torch.squeeze(n_outputs, dim=3)
+            n_outputs = torch.squeeze(n_outputs, dim=2)
 
             return q_outputs, a_outputs, n_outputs
         else:
@@ -416,7 +422,6 @@ class MyAttentionRNN(nn.Module):
         a_outputs = a_outputs * saq  # Update hidden states
         a_outputs = torch.transpose(a_outputs, 0, 1)
         a_outputs, _ = torch.max(a_outputs, 0)
-
 
         # Process negative answer
         if not isvalid:

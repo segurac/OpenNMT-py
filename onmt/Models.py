@@ -13,6 +13,7 @@ class EncoderBase(nn.Module):
     """
     EncoderBase class for sharing code among various encoder.
     """
+
     def _check_args(self, input, lengths=None, hidden=None):
         s_len, n_batch, n_feats = input.size()
         if lengths is not None:
@@ -35,6 +36,7 @@ class EncoderBase(nn.Module):
 
 class MeanEncoder(EncoderBase):
     """ A trivial encoder without RNN, just takes mean as final state. """
+
     def __init__(self, num_layers, embeddings):
         super(MeanEncoder, self).__init__()
         self.num_layers = num_layers
@@ -52,6 +54,7 @@ class MeanEncoder(EncoderBase):
 
 class RNNEncoder(EncoderBase):
     """ The standard RNN encoder. """
+
     def __init__(self, rnn_type, bidirectional, num_layers,
                  hidden_size, dropout, embeddings):
         super(RNNEncoder, self).__init__()
@@ -67,18 +70,18 @@ class RNNEncoder(EncoderBase):
             # SRU doesn't support PackedSequence.
             self.no_pack_padded_seq = True
             self.rnn = onmt.modules.SRU(
-                    input_size=embeddings.embedding_size,
-                    hidden_size=hidden_size,
-                    num_layers=num_layers,
-                    dropout=dropout,
-                    bidirectional=bidirectional)
+                input_size=embeddings.embedding_size,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                dropout=dropout,
+                bidirectional=bidirectional)
         else:
             self.rnn = getattr(nn, rnn_type)(
-                    input_size=embeddings.embedding_size,
-                    hidden_size=hidden_size,
-                    num_layers=num_layers,
-                    dropout=dropout,
-                    bidirectional=bidirectional)
+                input_size=embeddings.embedding_size,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                dropout=dropout,
+                bidirectional=bidirectional)
 
     def forward(self, input, lengths=None, hidden=None):
         """ See EncoderBase.forward() for description of args and returns."""
@@ -105,9 +108,10 @@ class RNNDecoderBase(nn.Module):
     """
     RNN decoder base class.
     """
+
     def __init__(self, rnn_type, bidirectional_encoder, num_layers,
                  hidden_size, attn_type, coverage_attn, context_gate,
-                 copy_attn, dropout, embeddings):
+                 copy_attn, dropout, embeddings, eos_token):
         super(RNNDecoderBase, self).__init__()
 
         # Basic attributes.
@@ -117,6 +121,7 @@ class RNNDecoderBase(nn.Module):
         self.hidden_size = hidden_size
         self.embeddings = embeddings
         self.dropout = nn.Dropout(dropout)
+        self.eos_token = eos_token
 
         # Build the RNN.
         self.rnn = self._build_rnn(rnn_type, self._input_size, hidden_size,
@@ -145,7 +150,7 @@ class RNNDecoderBase(nn.Module):
             )
             self._copy = True
 
-    def forward(self, input, context, state):
+    def forward(self, input, context, state, generator=None):
         """
         Forward through the decoder.
         Args:
@@ -172,7 +177,7 @@ class RNNDecoderBase(nn.Module):
 
         # Run the forward pass of the RNN.
         hidden, outputs, attns, coverage = \
-            self._run_forward_pass(input, context, state)
+            self._run_forward_pass(input, context, state, generator)
 
         # Update the state with the result.
         final_output = outputs[-1]
@@ -200,7 +205,7 @@ class RNNDecoderBase(nn.Module):
         if isinstance(enc_hidden, tuple):  # GRU
             return RNNDecoderState(context, self.hidden_size,
                                    tuple([self._fix_enc_hidden(enc_hidden[i])
-                                         for i in range(len(enc_hidden))]))
+                                          for i in range(len(enc_hidden))]))
         else:  # LSTM
             return RNNDecoderState(context, self.hidden_size,
                                    self._fix_enc_hidden(enc_hidden))
@@ -211,6 +216,7 @@ class StdRNNDecoder(RNNDecoderBase):
     Stardard RNN decoder, with Attention.
     Currently no 'coverage_attn' and 'copy_attn' support.
     """
+
     def _run_forward_pass(self, input, context, state):
         """
         Private helper for running the specific RNN forward pass.
@@ -253,7 +259,7 @@ class StdRNNDecoder(RNNDecoderBase):
         # Calculate the attention.
         attn_outputs, attn_scores = self.attn(
             rnn_output.transpose(0, 1).contiguous(),  # (output_len, batch, d)
-            context.transpose(0, 1)                   # (contxt_len, batch, d)
+            context.transpose(0, 1)  # (contxt_len, batch, d)
         )
         attns["std"] = attn_scores
 
@@ -267,7 +273,7 @@ class StdRNNDecoder(RNNDecoderBase):
             outputs = outputs.view(input_len, input_batch, self.hidden_size)
             outputs = self.dropout(outputs)
         else:
-            outputs = self.dropout(attn_outputs)    # (input_len, batch, d)
+            outputs = self.dropout(attn_outputs)  # (input_len, batch, d)
 
         # Return result.
         return hidden, outputs, attns, coverage
@@ -280,9 +286,9 @@ class StdRNNDecoder(RNNDecoderBase):
         # Use pytorch version when available.
         if rnn_type == "SRU":
             return onmt.modules.SRU(
-                    input_size, hidden_size,
-                    num_layers=num_layers,
-                    dropout=dropout)
+                input_size, hidden_size,
+                num_layers=num_layers,
+                dropout=dropout)
 
         return getattr(nn, rnn_type)(
             input_size, hidden_size,
@@ -301,7 +307,8 @@ class InputFeedRNNDecoder(RNNDecoderBase):
     """
     Stardard RNN decoder, with Input Feed and Attention.
     """
-    def _run_forward_pass(self, input, context, state):
+
+    def _run_forward_pass(self, input, context, state, generator):
         """
         See StdRNNDecoder._run_forward_pass() for description
         of arguments and return values.
@@ -365,7 +372,7 @@ class InputFeedRNNDecoder(RNNDecoderBase):
     def _build_rnn(self, rnn_type, input_size,
                    hidden_size, num_layers, dropout):
         assert not rnn_type == "SRU", "SRU doesn't support input feed! " \
-                "Please set -input_feed 0!"
+                                      "Please set -input_feed 0!"
         if rnn_type == "LSTM":
             stacked_cell = onmt.modules.StackedLSTM
         else:
@@ -381,28 +388,151 @@ class InputFeedRNNDecoder(RNNDecoderBase):
         return self.embeddings.embedding_size + self.hidden_size
 
 
-class AnsSelectModel(nn.Module):
+class InputFeedRNNDecoderNoForcing(RNNDecoderBase):
     """
-    Encode both Q and A and measure distance.
+    Stardard RNN decoder, with Input Feed and Attention.
     """
 
-    def __init__(self, encoder):
-        super(AnsSelectModel, self).__init__()
-        self.encoder = encoder
+    def _run_forward_pass(self, input, context, state, generator):
+        """
+        See StdRNNDecoder._run_forward_pass() for description
+        of arguments and return values.
+        """
+        # Additional args check.
+        output = state.input_feed.squeeze(0)
+        output_batch, _ = output.size()
+        input_len, input_batch, _ = input.size()
+        aeq(input_batch, output_batch)
+        # END Additional args check.
 
-    def forward(self, question, answers, lengths):
+        # Initialize local and return variables.
+        outputs = []
+        attns = {"std": []}
+        if self._copy:
+            attns["copy"] = []
+        if self._coverage:
+            attns["coverage"] = []
 
-        q_hidden, q_context = self.encoder(question, lengths)
-        a_hidden, a_context = self.encoder(answers, lengths)
+        emb = self.embeddings(input)
+        assert emb.dim() == 3  # len x batch x embedding_dim
 
-        return q_hidden, q_context, a_hidden, a_context
+        hidden = state.hidden
+        coverage = state.coverage.squeeze(0) \
+            if state.coverage is not None else None
 
+        # Input feed concatenates hidden state with
+        # input at every time step.
+        for i, emb_t in enumerate(emb.split(1)):
+            emb_t = emb_t.squeeze(0)
+            emb_t = torch.cat([emb_t, output], 1)
+
+            rnn_output, hidden = self.rnn(emb_t, hidden)
+            attn_output, attn = self.attn(rnn_output,
+                                          context.transpose(0, 1))
+            if self.context_gate is not None:
+                output = self.context_gate(
+                    emb_t, rnn_output, attn_output
+                )
+                output = self.dropout(output)
+            else:
+                output = self.dropout(attn_output)
+            outputs += [output]
+            attns["std"] += [attn]
+
+            # Update the coverage attention.
+            if self._coverage:
+                coverage = coverage + attn \
+                    if coverage is not None else attn
+                attns["coverage"] += [coverage]
+
+            # Run the forward pass of the copy attention layer.
+            if self._copy:
+                _, copy_attn = self.copy_attn(output,
+                                              context.transpose(0, 1))
+                attns["copy"] += [copy_attn]
+
+        new_emb = emb.split(1)[0]
+        new_emb = new_emb.squeeze(0)
+
+        ended_batch = torch.ones(input.size(1))
+
+        outputs_nf = []
+        attns_nf = {"std": []}
+        # Now without teacher forcing
+        for i, emb_t in enumerate(emb.split(1)):
+            emb_t = torch.cat([new_emb, output], 1)
+
+            rnn_output, hidden = self.rnn(emb_t, hidden)
+
+            attn_output_nf, attn_nf = self.attn(rnn_output,
+                                                context.transpose(0, 1))
+            if self.context_gate is not None:
+                output_nf = self.context_gate(
+                    emb_t, rnn_output, attn_output_nf
+                )
+                output_nf = self.dropout(output_nf)
+            else:
+                output_nf = self.dropout(attn_output_nf)
+            outputs_nf += [output_nf]
+            attns_nf["std"] += [attn_nf]
+
+            scores = generator(output)
+
+            # Update the coverage attention.
+            if self._coverage:
+                coverage = coverage + attn \
+                    if coverage is not None else attn
+                attns["coverage"] += [coverage]
+
+            # Run the forward pass of the copy attention layer.
+            if self._copy:
+                _, copy_attn = self.copy_attn(output,
+                                              context.transpose(0, 1))
+                attns["copy"] += [copy_attn]
+
+            topv, topi = scores.data.topk(1)
+
+            new_input = torch.transpose(topi, 0, 1)
+            new_input = torch.unsqueeze(new_input, 2)
+
+            new_input = new_input.cuda if input.is_cuda else new_input
+
+            new_input = Variable(new_input)
+            new_emb = self.embeddings(new_input)
+            new_emb = new_emb.squeeze(0)
+
+            # What happens if the output is EOS???
+            for j, idx_out in enumerate(topi):
+                if idx_out == self.eos_token:
+                    ended_batch[j] = i
+
+        # Return result.
+        return hidden, outputs, attns, coverage, outputs_nf, attns_nf
+
+    def _build_rnn(self, rnn_type, input_size,
+                   hidden_size, num_layers, dropout):
+        assert not rnn_type == "SRU", "SRU doesn't support input feed! " \
+                                      "Please set -input_feed 0!"
+        if rnn_type == "LSTM":
+            stacked_cell = onmt.modules.StackedLSTM
+        else:
+            stacked_cell = onmt.modules.StackedGRU
+        return stacked_cell(num_layers, input_size,
+                            hidden_size, dropout)
+
+    @property
+    def _input_size(self):
+        """
+        Using input feed by concatenating input with attention vectors.
+        """
+        return self.embeddings.embedding_size + self.hidden_size
 
 
 class NMTModel(nn.Module):
     """
     The encoder + decoder Neural Machine Translation Model.
     """
+
     def __init__(self, encoder, decoder, multigpu=False):
         """
         Args:
@@ -436,7 +566,7 @@ class NMTModel(nn.Module):
         enc_state = self.decoder.init_decoder_state(src, context, enc_hidden)
         out, dec_state, attns = self.decoder(tgt, context,
                                              enc_state if dec_state is None
-                                             else dec_state)
+                                             else dec_state, self.generator)
         if self.multigpu:
             # Not yet supported on multi-gpu
             dec_state = None
@@ -449,6 +579,7 @@ class DecoderState(object):
     DecoderState is a base class for models, used during translation
     for storing translation states.
     """
+
     def detach(self):
         """
         Detaches all Variables from the graph

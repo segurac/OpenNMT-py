@@ -269,6 +269,11 @@ def main():
     opt.batch_size = 20
     db_name = os.path.split(os.path.dirname(opt.data))[-1]
 
+    print(opt)
+    attributes = str(opt).replace("Namespace(", "")
+    attributes = attributes.replace(")", "")
+    attributes = attributes.split(",")
+
     # Load train and validate data.
     print("Loading train and validate data from '%s'" % opt.data)
     train = torch.load(opt.data + '.train.pt')
@@ -319,6 +324,11 @@ def main():
     train_losses = []
     val_losses = []
     val_accuracy = []
+
+    summary = open('models/' + db_name + '/summary_' + opt.name + '.txt', 'a')
+    for my_attr in attributes:
+        summary.write(my_attr + "\n")
+    summary.close()
 
     print(26*"*"), print(5*"*" + " Start training " + 5*"*"), print(26*"*")
     result_file = open('models/' + db_name + '/results_' + opt.name + '.txt', 'a')

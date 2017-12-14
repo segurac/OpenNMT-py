@@ -109,6 +109,8 @@ class Trainer(object):
             tgt_outer = onmt.IO.make_features(batch, 'tgt')
             report_stats.n_src_words += src_lengths.sum()
 
+            print(torch.squeeze(tgt_outer))
+
             for j in range(0, target_size-1, trunc_size):
                 # 1. Create truncated target.
                 tgt = tgt_outer[j: j + trunc_size]

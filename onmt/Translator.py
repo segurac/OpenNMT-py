@@ -241,19 +241,41 @@ class Translator(object):
         question = onmt.IO.make_features(batch, 'src')
 
         distances = torch.zeros(self.opt.n_best)
+        cosine_dist = torch.zeros(self.opt.n_best)
+        pp_dist = torch.zeros(self.opt.n_best)
         for idx, ans in enumerate(pred[0]):
             ans = torch.LongTensor(ans)
             ans = ans.view(ans.size(0), 1, 1)
-            ans = Variable(ans.cuda())
+            # ans = Variable(ans.cuda())
+            ans = Variable(ans)
             q, a = modelAS.forward(question, ans, None, src_lengths, batch_size, 1)
             dist = cos_dist(q, a)
-            distances[idx] = dist.data[0] + self.opt.tradeoff*predScore[0][idx]
+            distances[idx] = self.opt.tradeoff*dist.data[0] + predScore[0][idx]
+            predScore[0][idx] = self.opt.tradeoff*dist.data[0] + predScore[0][idx]
+            cosine_dist[idx] = dist.data[0]
+            pp_dist[idx] = predScore[0][idx]
 
         _, correct = torch.max(distances, 0)
 
         correct = correct.numpy()
         idx_correct = correct[0]
         as_predict = pred[0][idx_correct]
+
+        _, indices = torch.sort(distances, 0, descending=True)
+        indices = indices.numpy()
+        indices = indices.tolist()
+
+        _, indices_cos = torch.sort(cosine_dist, 0, descending=True)
+        indices_cos = indices_cos.numpy()
+        indices_cos = indices_cos.tolist()
+
+        print()
+        print("Sum indices: [" + ', '.join(str(idx) for idx in indices) + " ]")
+        print("Cosine indices: [" + ', '.join(str(idx) for idx in indices_cos) + " ]")
+
+        print()
+        print("PP score: [" + ', '.join(str(score) for score in pp_dist) + " ]")
+        print("Cosine score: [" + ', '.join(str(score) for score in cosine_dist) + " ]")
 
 
         #  (3) convert indexes to words
@@ -271,4 +293,12 @@ class Translator(object):
                 goldBatch.append(
                     self.buildTargetTokens(tgt[1:, b], src[:, b],
                                            None, None))
-        return predBatch, goldBatch, predScore, goldScore, attn, src, predBatch[0][idx_correct]
+        orderedBatch = []
+        ordered = [predBatch[0][i] for i in indices]
+        orderedBatch.append(ordered)
+
+        orderedpredScore = ()
+        ordered = [predScore[0][i] for i in indices]
+        orderedpredScore += (ordered, )
+
+        return orderedBatch, goldBatch, orderedpredScore, goldScore, attn, src, predBatch[0][idx_correct]
