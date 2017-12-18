@@ -4,6 +4,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 from torch.nn.utils.rnn import pack_padded_sequence as pack
 from torch.nn.utils.rnn import pad_packed_sequence as unpack
+from copy import deepcopy
 
 import onmt
 from onmt.Utils import aeq
@@ -176,7 +177,10 @@ class RNNDecoderBase(nn.Module):
         # END Args Check
 
         # Run the forward pass of the RNN.
-        hidden, outputs, attns, coverage = \
+        # hidden, outputs, attns, coverage = \
+        #     self._run_forward_pass(input, context, state, generator)
+
+        hidden, outputs, attns, coverage, hidden2, outputs_nf, attns_nf = \
             self._run_forward_pass(input, context, state, generator)
 
         # Update the state with the result.
@@ -190,7 +194,13 @@ class RNNDecoderBase(nn.Module):
         for k in attns:
             attns[k] = torch.stack(attns[k])
 
-        return outputs, state, attns
+        # Added
+        outputs_nf = torch.stack(outputs_nf)
+        for k in attns_nf:
+            attns_nf[k] = torch.stack(attns_nf[k])
+
+        # return outputs, state, attns
+        return outputs, state, attns, outputs_nf, attns_nf
 
     def _fix_enc_hidden(self, h):
         """
@@ -426,7 +436,11 @@ class InputFeedRNNDecoderNoForcing(RNNDecoderBase):
             emb_t = emb_t.squeeze(0)
             emb_t = torch.cat([emb_t, output], 1)
 
-            rnn_output, hidden = self.rnn(emb_t, hidden)
+            if i == 0:
+                rnn_output, hidden_1 = self.rnn(emb_t, hidden)
+            else:
+                rnn_output, hidden_1 = self.rnn(emb_t, hidden_1)
+
             attn_output, attn = self.attn(rnn_output,
                                           context.transpose(0, 1))
             if self.context_gate is not None:
@@ -462,7 +476,10 @@ class InputFeedRNNDecoderNoForcing(RNNDecoderBase):
         for i, emb_t in enumerate(emb.split(1)):
             emb_t = torch.cat([new_emb, output], 1)
 
-            rnn_output, hidden = self.rnn(emb_t, hidden)
+            if i == 0:
+                rnn_output, hidden_2 = self.rnn(emb_t, hidden)
+            else:
+                rnn_output, hidden_2 = self.rnn(emb_t, hidden_2)
 
             attn_output_nf, attn_nf = self.attn(rnn_output,
                                                 context.transpose(0, 1))
@@ -503,11 +520,11 @@ class InputFeedRNNDecoderNoForcing(RNNDecoderBase):
 
             # What happens if the output is EOS???
             for j, idx_out in enumerate(topi):
-                if idx_out == self.eos_token:
+                if idx_out[0] == self.eos_token:
                     ended_batch[j] = i
 
         # Return result.
-        return hidden, outputs, attns, coverage, outputs_nf, attns_nf
+        return hidden_1, outputs, attns, coverage, hidden_2, outputs_nf, attns_nf
 
     def _build_rnn(self, rnn_type, input_size,
                    hidden_size, num_layers, dropout):
@@ -564,15 +581,20 @@ class NMTModel(nn.Module):
         tgt = tgt[:-1]  # exclude last target from inputs
         enc_hidden, context = self.encoder(src, lengths)
         enc_state = self.decoder.init_decoder_state(src, context, enc_hidden)
-        out, dec_state, attns = self.decoder(tgt, context,
-                                             enc_state if dec_state is None
-                                             else dec_state, self.generator)
+        # out, dec_state, attns = self.decoder(tgt, context,
+        #                                      enc_state if dec_state is None
+        #                                      else dec_state, self.generator)
+
+        out, dec_state, attns, out_nf, attns_nf = self.decoder(tgt, context,
+                                                      enc_state if dec_state is None
+                                                      else dec_state, self.generator)
+
         if self.multigpu:
             # Not yet supported on multi-gpu
             dec_state = None
             attns = None
-        return out, attns, dec_state
-
+        # return out, attns, dec_state
+        return out, attns, dec_state, out_nf, attns_nf
 
 class DecoderState(object):
     """

@@ -234,6 +234,10 @@ def train_opts(parser):
     parser.add_argument('-exp', type=str, default="",
                         help="Name of the experiment for logging.")
 
+    # Ranking system
+    parser.add_argument('-model_ranking', required=True,
+                        help="Path to the ranking model")
+
 
 def train_AS(parser):
     parser.add_argument('-dist', type=str, default="cosine",

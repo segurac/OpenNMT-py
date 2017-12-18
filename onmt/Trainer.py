@@ -65,7 +65,7 @@ class Statistics(object):
 
 
 class Trainer(object):
-    def __init__(self, model, train_iter, valid_iter,
+    def __init__(self, model, model_rank, train_iter, valid_iter,
                  train_loss, valid_loss, optim,
                  trunc_size, shard_size):
         """
@@ -81,6 +81,7 @@ class Trainer(object):
         """
         # Basic attributes.
         self.model = model
+        self.model_rank = model_rank
         self.train_iter = train_iter
         self.valid_iter = valid_iter
         self.train_loss = train_loss
@@ -117,13 +118,23 @@ class Trainer(object):
 
                 # 2. F-prop all but generator.
                 self.model.zero_grad()
-                outputs, attns, dec_state = \
-                    self.model(src, tgt, src_lengths, dec_state)
+                # outputs, attns, dec_state = \
+                #     self.model(src, tgt, src_lengths, dec_state)
+                outputs, attns, dec_state, outputs_nf, attns_nf = self.model(src,
+                                                                             tgt,
+                                                                             src_lengths,
+                                                                             dec_state)
+
+                # 2.1 Recover generated answer
+                self.recover_answer(outputs_nf, attns_nf)
+
+                # 2.2 Forward through ranking model
+                q_emb, a_emb = self.model_rank.forward(src, tgt, None, src_lengths, batch.batch_size, 1)
 
                 # 3. Compute loss in shards for memory efficiency.
-                batch_stats = self.train_loss.sharded_compute_loss(
+                batch_stats = self.train_loss.custom_sharded_compute_loss(
                         batch, outputs, attns, j,
-                        trunc_size, self.shard_size)
+                        trunc_size, self.shard_size, outputs_nf, attns_nf)
 
                 # 4. Update the parameters and statistics.
                 self.optim.step()
@@ -197,3 +208,15 @@ class Trainer(object):
                    '%s_acc_%.2f_ppl_%.2f_e%d.pt'
                    % (opt.save_model, valid_stats.accuracy(),
                       valid_stats.ppl(), epoch))
+
+    def recover_answer(self, outputs_nf, attns_nf):
+
+        bottled = self.bottle(outputs_nf)
+        scores = self.model.generator(bottled)
+        scores_data = scores.data.clone()
+
+    def bottle(self, v):
+        return v.view(-1, v.size(2))
+
+
+

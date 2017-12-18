@@ -135,7 +135,7 @@ def make_loss_compute(model, tgt_vocab, dataset, opt):
     return compute
 
 
-def train_model(model, train_data, valid_data, fields, optim):
+def train_model(model, model_rank, train_data, valid_data, fields, optim):
 
     train_iter = make_train_data_iter(train_data, opt)
     valid_iter = make_valid_data_iter(valid_data, opt)
@@ -148,7 +148,7 @@ def train_model(model, train_data, valid_data, fields, optim):
     trunc_size = opt.truncated_decoder  # Badly named...
     shard_size = opt.max_generator_batches
 
-    trainer = onmt.Trainer(model, train_iter, valid_iter,
+    trainer = onmt.Trainer(model, model_rank, train_iter, valid_iter,
                            train_loss, valid_loss, optim,
                            trunc_size, shard_size)
 
@@ -280,6 +280,11 @@ def main():
         checkpoint = None
         model_opt = opt
 
+    model_rank = torch.load(opt.model_ranking, map_location=lambda storage, loc: storage)
+    if opt.gpuid:
+        model_rank.cuda()
+    model_rank.eval()
+
     # Load fields generated from preprocess phase.
     fields = load_fields(train, valid, checkpoint)
 
@@ -297,7 +302,7 @@ def main():
     optim = build_optim(model, checkpoint)
 
     # Do training.
-    train_model(model, train, valid, fields, optim)
+    train_model(model, model_rank, train, valid, fields, optim)
 
 
 if __name__ == "__main__":

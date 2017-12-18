@@ -50,6 +50,9 @@ class LossComputeBase(nn.Module):
         """
         return NotImplementedError
 
+    def custom_compute_loss(self, batch, output, target, **kwargs):
+        return NotImplementedError
+
     def monolithic_compute_loss(self, batch, output, attns):
         """
         Compute the loss monolithically, not dividing into shards.
@@ -71,6 +74,23 @@ class LossComputeBase(nn.Module):
 
         for shard in shards(shard_state, shard_size):
             loss, stats = self.compute_loss(batch, **shard)
+            loss.div(batch.batch_size).backward()
+            batch_stats.update(stats)
+
+        return batch_stats
+
+    def custom_sharded_compute_loss(self, batch, output, attns,
+                             cur_trunc, trunc_size, shard_size, output_nf, attns_nf):
+
+        """
+        Compute the loss in shards for efficiency.
+        """
+        batch_stats = onmt.Statistics()
+        range_ = (cur_trunc, cur_trunc + trunc_size)
+        shard_state = self.make_shard_state(batch, output, range_, attns)
+
+        for shard in shards(shard_state, shard_size):
+            loss, stats = self.custom_compute_loss(batch, **shard)
             loss.div(batch.batch_size).backward()
             batch_stats.update(stats)
 
@@ -126,6 +146,25 @@ class NMTLossCompute(LossComputeBase):
         target = target.view(-1)
         target_data = target.data.clone()
 
+        # Afegir custom loss
+        loss = self.criterion(scores, target)
+        loss_data = loss.data.clone()
+
+        stats = self.stats(loss_data, scores_data, target_data)
+
+        return loss, stats
+
+    def custom_compute_loss(self, batch, output, target):
+        """ See base class for args description. """
+        bottled = self.bottle(output)
+        scores = self.generator(bottled)
+        # scores = self.generator(self.bottle(output))
+        scores_data = scores.data.clone()
+
+        target = target.view(-1)
+        target_data = target.data.clone()
+
+        # Afegir custom loss
         loss = self.criterion(scores, target)
         loss_data = loss.data.clone()
 
