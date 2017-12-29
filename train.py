@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from torch import cuda
 
+import numpy as np
 import onmt
 import onmt.Models
 import onmt.ModelConstructor
@@ -147,18 +148,21 @@ def train_model(model, model_rank, train_data, valid_data, fields, optim):
 
     trunc_size = opt.truncated_decoder  # Badly named...
     shard_size = opt.max_generator_batches
+    shard_size = 64
 
     trainer = onmt.Trainer(model, model_rank, train_iter, valid_iter,
                            train_loss, valid_loss, optim,
-                           trunc_size, shard_size)
+                           trunc_size, shard_size, opt.trade_off_losses, opt.n_softmax)
 
     for epoch in range(opt.start_epoch, opt.epochs + 1):
         print('')
 
         # 1. Train for one epoch on the training set.
-        train_stats = trainer.train(epoch, report_func)
+        train_stats, losses_seq, losses_w = trainer.train(epoch, report_func)
         print('Train perplexity: %g' % train_stats.ppl())
         print('Train accuracy: %g' % train_stats.accuracy())
+        print('Train word loss: %g' % np.mean(losses_w))
+        print('Train seq loss: %g' % np.mean(losses_seq))
 
         # 2. Validate on the validation set.
         valid_stats = trainer.validate()
@@ -200,8 +204,10 @@ def tally_parameters(model):
 
 
 def load_fields(train, valid, checkpoint):
-    fields = onmt.IO.ONMTDataset.load_fields(
-                torch.load(opt.data + '.vocab.pt'))
+    vocab = torch.load(opt.data + '.vocab.pt')
+    vocab = vocab[:-1]
+    fields = onmt.IO.ONMTDataset.load_fields(vocab)
+
     fields = dict([(k, f) for (k, f) in fields.items()
                   if k in train.examples[0].__dict__])
     train.fields = fields
@@ -283,7 +289,10 @@ def main():
     model_rank = torch.load(opt.model_ranking, map_location=lambda storage, loc: storage)
     if opt.gpuid:
         model_rank.cuda()
+    else:
+        model_rank.use_cuda = False
     model_rank.eval()
+
 
     # Load fields generated from preprocess phase.
     fields = load_fields(train, valid, checkpoint)

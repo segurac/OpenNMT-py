@@ -133,6 +133,12 @@ class MyRNN_CNN(nn.Module):
     def forward(self, question, c_answers, n_answers, lengths, batch_size, isvalid):
         lengths = lengths.view(-1).tolist()
 
+        if isvalid:
+            if n_answers is not None:
+                emb_lut = self.embeddings.weight.data
+                a_emb = torch.mm(c_answers, Variable(emb_lut))
+                a_emb = self.unbottle(a_emb, batch_size)
+
         # Process Question
         hidden = self.init_hidden(batch_size)
         q_size = question.size()
@@ -156,7 +162,12 @@ class MyRNN_CNN(nn.Module):
         hidden = self.init_hidden(batch_size)
         a_size = c_answers.size()
         c_answers = c_answers.view(a_size[0], -1)
-        a_emb = self.embeddings(c_answers)
+
+        if isvalid:
+            if n_answers is None:
+                a_emb = self.embeddings(c_answers)
+        else:
+            a_emb = self.embeddings(c_answers)
         s_len, batch, emb_dim = a_emb.size()
         # a_packed_emb = pack(a_emb, lengths)
 
@@ -208,6 +219,9 @@ class MyRNN_CNN(nn.Module):
         c0 = Variable(c0)
 
         return h0, c0
+
+    def unbottle(self, v, batch_size):
+        return v.view(-1, batch_size, v.size(1))
 
 
 class MyAttetion_RNN_CNN(nn.Module):
@@ -383,6 +397,7 @@ class MyAttentionRNN(nn.Module):
         self.fc_am = nn.Linear(hidden_size * self.n_direct, fc_size)
         self.fc_qm = nn.Linear(hidden_size * self.n_direct, fc_size)
         self.fc_ms = nn.Linear(fc_size, 1)
+        self.scalar = nn.Linear(1, 1, bias=False)
 
     def forward(self, question, c_answers, n_answers, lengths, batch_size, isvalid):
         lengths = lengths.view(-1).tolist()
@@ -418,6 +433,7 @@ class MyAttentionRNN(nn.Module):
         maq = F.tanh(maq)
 
         saq = torch.exp(self.fc_ms(maq))
+        saq = self.scalar(saq)
 
         a_outputs = a_outputs * saq  # Update hidden states
         a_outputs = torch.transpose(a_outputs, 0, 1)
@@ -438,6 +454,7 @@ class MyAttentionRNN(nn.Module):
             maq = aux1 + aux2
             maq = F.tanh(maq)
             saq = torch.exp(self.fc_ms(maq))
+            saq = self.scalar(saq)
 
             n_outputs = n_outputs * saq
             n_outputs = torch.transpose(n_outputs, 0, 1)
@@ -448,9 +465,6 @@ class MyAttentionRNN(nn.Module):
             return q_outputs, a_outputs
 
     def init_hidden(self, batch_size):
-        # h0 = Variable(torch.zeros(self.n_layers*self.n_direct, self.batch_size, self.hidden_size))
-        # c0 = Variable(torch.zeros(self.n_layers*self.n_direct, self.batch_size, self.hidden_size))
-
         h0 = torch.zeros(self.n_layers * self.n_direct, batch_size, self.hidden_size)
         c0 = torch.zeros(self.n_layers * self.n_direct, batch_size, self.hidden_size)
 

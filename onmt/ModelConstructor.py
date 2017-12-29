@@ -88,7 +88,18 @@ def make_decoder(opt, embeddings, eos_token):
                           opt.cnn_kernel_width, opt.dropout,
                           embeddings)
     elif opt.input_feed:
-        return InputFeedRNNDecoderNoForcing(opt.rnn_type, opt.brnn,
+        # Chatbot, uncomment for train
+        # return InputFeedRNNDecoderNoForcing(opt.rnn_type, opt.brnn,
+        #                            opt.dec_layers, opt.rnn_size,
+        #                            opt.global_attention,
+        #                            opt.coverage_attn,
+        #                            opt.context_gate,
+        #                            opt.copy_attn,
+        #                            opt.dropout,
+        #                            embeddings,
+        #                            eos_token)
+
+        return InputFeedRNNDecoder(opt.rnn_type, opt.brnn,
                                    opt.dec_layers, opt.rnn_size,
                                    opt.global_attention,
                                    opt.coverage_attn,

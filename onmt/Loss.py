@@ -80,7 +80,7 @@ class LossComputeBase(nn.Module):
         return batch_stats
 
     def custom_sharded_compute_loss(self, batch, output, attns,
-                             cur_trunc, trunc_size, shard_size, output_nf, attns_nf):
+                             cur_trunc, trunc_size, shard_size, loss_seq, trade_off):
 
         """
         Compute the loss in shards for efficiency.
@@ -89,12 +89,20 @@ class LossComputeBase(nn.Module):
         range_ = (cur_trunc, cur_trunc + trunc_size)
         shard_state = self.make_shard_state(batch, output, range_, attns)
 
-        for shard in shards(shard_state, shard_size):
-            loss, stats = self.custom_compute_loss(batch, **shard)
-            loss.div(batch.batch_size).backward()
-            batch_stats.update(stats)
+        # for shard in shards(shard_state, shard_size):
+        #     loss, stats = self.custom_compute_loss(batch, **shard)
+        #     loss = loss.div(batch.batch_size) # + trade_off*loss_seq
+        #     loss.backward()
+        #     batch_stats.update(stats)
 
-        return batch_stats
+        loss, stats = self.custom_compute_loss(batch, output, batch.tgt[0 + 1: batch.tgt.size(0)])
+        loss_w = loss.data.clone()[0]
+        loss = loss + trade_off*loss_seq
+        loss = loss.div(batch.batch_size)
+        loss.backward()
+        batch_stats.update(stats)
+
+        return batch_stats, loss_w
 
     def stats(self, loss, scores, target):
         """

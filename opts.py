@@ -11,11 +11,11 @@ def model_opts(parser):
     parser.add_argument('-model_type', default='text',
                         help="Type of encoder to use. Options are [text|img].")
     # Embedding Options
-    parser.add_argument('-word_vec_size', type=int, default=100,
+    parser.add_argument('-word_vec_size', type=int, default=500,
                         help='Word embedding for both.')
-    parser.add_argument('-src_word_vec_size', type=int, default=100,
+    parser.add_argument('-src_word_vec_size', type=int, default=500,
                         help='Src word embedding sizes')
-    parser.add_argument('-tgt_word_vec_size', type=int, default=100,
+    parser.add_argument('-tgt_word_vec_size', type=int, default=500,
                         help='Tgt word embedding sizes')
 
     parser.add_argument('-feat_merge', type=str, default='concat',
@@ -119,11 +119,11 @@ def preprocess_opts(parser):
     parser.add_argument('-pool_words_min_frequency', type=int, default=0)
 
     # Truncation options
-    parser.add_argument('-src_seq_length', type=int, default=200,
+    parser.add_argument('-src_seq_length', type=int, default=50,
                         help="Maximum source sequence length")
     parser.add_argument('-src_seq_length_trunc', type=int, default=0,
                         help="Truncate source sequence length.")
-    parser.add_argument('-tgt_seq_length', type=int, default=200,
+    parser.add_argument('-tgt_seq_length', type=int, default=50,
                         help="Maximum target sequence length to keep.")
     parser.add_argument('-tgt_seq_length_trunc', type=int, default=0,
                         help="Truncate target sequence length.")
@@ -186,9 +186,9 @@ def train_opts(parser):
                         help="Fix word embeddings on the encoder side.")
 
     # Optimization options
-    parser.add_argument('-batch_size', type=int, default=64,
+    parser.add_argument('-batch_size', type=int, default=10,
                         help='Maximum batch size')
-    parser.add_argument('-max_generator_batches', type=int, default=32,
+    parser.add_argument('-max_generator_batches', type=int, default=10,
                         help="""Maximum batches of words in a sequence to run
                         the generator on in parallel. Higher is faster, but
                         uses more memory.""")
@@ -237,6 +237,10 @@ def train_opts(parser):
     # Ranking system
     parser.add_argument('-model_ranking', required=True,
                         help="Path to the ranking model")
+    parser.add_argument('-n_softmax', type=int, default=1000,
+                        help="Number of outputs to consider for the ranking model")
+    parser.add_argument('-trade_off_losses', type=float, default=1,
+                        help='Trade-off to consider between word_loss and seq_loss')
 
 
 def train_AS(parser):
@@ -267,7 +271,7 @@ def train_AS(parser):
     parser.add_argument('-window_size', type=int, default=2,
                         help='Size of filters')
 
-    parser.add_argument('-attention_size', type=int, default=3,
+    parser.add_argument('-attention_size', type=int, default=10,
                         help='Size of Attention FC module')
 
     parser.add_argument('-name', type=str,

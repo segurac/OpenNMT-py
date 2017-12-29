@@ -177,11 +177,12 @@ class RNNDecoderBase(nn.Module):
         # END Args Check
 
         # Run the forward pass of the RNN.
-        # hidden, outputs, attns, coverage = \
-        #     self._run_forward_pass(input, context, state, generator)
-
-        hidden, outputs, attns, coverage, hidden2, outputs_nf, attns_nf = \
+        hidden, outputs, attns, coverage = \
             self._run_forward_pass(input, context, state, generator)
+
+        # Chatbot, uncomment for train
+        # hidden, outputs, attns, coverage, hidden2, outputs_nf, attns_nf = \
+        #     self._run_forward_pass(input, context, state, generator)
 
         # Update the state with the result.
         final_output = outputs[-1]
@@ -194,13 +195,13 @@ class RNNDecoderBase(nn.Module):
         for k in attns:
             attns[k] = torch.stack(attns[k])
 
-        # Added
-        outputs_nf = torch.stack(outputs_nf)
-        for k in attns_nf:
-            attns_nf[k] = torch.stack(attns_nf[k])
+        # Added, uncomment for train
+        # outputs_nf = torch.stack(outputs_nf)
+        # for k in attns_nf:
+        #     attns_nf[k] = torch.stack(attns_nf[k])
 
-        # return outputs, state, attns
-        return outputs, state, attns, outputs_nf, attns_nf
+        return outputs, state, attns
+        # return outputs, state, attns, outputs_nf, attns_nf    # uncomment for train
 
     def _fix_enc_hidden(self, h):
         """
@@ -512,7 +513,8 @@ class InputFeedRNNDecoderNoForcing(RNNDecoderBase):
             new_input = torch.transpose(topi, 0, 1)
             new_input = torch.unsqueeze(new_input, 2)
 
-            new_input = new_input.cuda if input.is_cuda else new_input
+            if input.is_cuda:
+                new_input = new_input.cuda()
 
             new_input = Variable(new_input)
             new_emb = self.embeddings(new_input)

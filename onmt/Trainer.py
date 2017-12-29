@@ -14,6 +14,8 @@ import sys
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from torch.autograd import Variable
 
 import onmt
 import onmt.modules
@@ -67,7 +69,7 @@ class Statistics(object):
 class Trainer(object):
     def __init__(self, model, model_rank, train_iter, valid_iter,
                  train_loss, valid_loss, optim,
-                 trunc_size, shard_size):
+                 trunc_size, shard_size, trade_off, n_softmax):
         """
         Args:
             model: the seq2seq model.
@@ -89,6 +91,8 @@ class Trainer(object):
         self.optim = optim
         self.trunc_size = trunc_size
         self.shard_size = shard_size
+        self.trade_off = trade_off
+        self.n_softmax = n_softmax
 
         # Set model in training mode.
         self.model.train()
@@ -97,6 +101,10 @@ class Trainer(object):
         """ Called for each epoch to train. """
         total_stats = Statistics()
         report_stats = Statistics()
+        cos_dist = nn.CosineSimilarity()
+
+        losses_seq = []
+        losses_w = []
 
         for i, batch in enumerate(self.train_iter):
             target_size = batch.tgt.size(0)
@@ -110,14 +118,13 @@ class Trainer(object):
             tgt_outer = onmt.IO.make_features(batch, 'tgt')
             report_stats.n_src_words += src_lengths.sum()
 
-            print(torch.squeeze(tgt_outer))
-
             for j in range(0, target_size-1, trunc_size):
                 # 1. Create truncated target.
                 tgt = tgt_outer[j: j + trunc_size]
 
                 # 2. F-prop all but generator.
                 self.model.zero_grad()
+                self.model_rank.zero_grad()
                 # outputs, attns, dec_state = \
                 #     self.model(src, tgt, src_lengths, dec_state)
                 outputs, attns, dec_state, outputs_nf, attns_nf = self.model(src,
@@ -126,15 +133,22 @@ class Trainer(object):
                                                                              dec_state)
 
                 # 2.1 Recover generated answer
-                self.recover_answer(outputs_nf, attns_nf)
+                rec_ans = self.recover_answer(outputs_nf, attns_nf)
 
                 # 2.2 Forward through ranking model
-                q_emb, a_emb = self.model_rank.forward(src, tgt, None, src_lengths, batch.batch_size, 1)
+                q_emb, a_emb = self.model_rank.forward(src, rec_ans, -1, src_lengths, batch.batch_size, 1)
+                similarity = cos_dist(q_emb, a_emb)
+                loss_seq = torch.neg(similarity.mean())
 
+                losses_seq.append(loss_seq.data.clone()[0])
+
+                # loss_seq.backward()
                 # 3. Compute loss in shards for memory efficiency.
-                batch_stats = self.train_loss.custom_sharded_compute_loss(
+                batch_stats, loss_w = self.train_loss.custom_sharded_compute_loss(
                         batch, outputs, attns, j,
-                        trunc_size, self.shard_size, outputs_nf, attns_nf)
+                        trunc_size, self.shard_size, loss_seq, self.trade_off)
+                losses_w.append(loss_w)
+
 
                 # 4. Update the parameters and statistics.
                 self.optim.step()
@@ -150,7 +164,7 @@ class Trainer(object):
                         epoch, i, len(self.train_iter),
                         total_stats.start_time, self.optim.lr, report_stats)
 
-        return total_stats
+        return total_stats, losses_seq, losses_w
 
     def validate(self):
         """ Called for each epoch to validate. """
@@ -214,9 +228,25 @@ class Trainer(object):
         bottled = self.bottle(outputs_nf)
         scores = self.model.generator(bottled)
         scores_data = scores.data.clone()
+        scores = torch.exp(scores)
+
+        topv, topi = scores.data.topk(self.n_softmax)
+        min_value = topv[:, -1]
+
+        min_value = torch.unsqueeze(min_value, 1)
+        mask = torch.gt(scores.data, min_value).float()
+        masked_scores = torch.mul(scores, Variable(mask))
+
+        unbottled = masked_scores
+        # unbottled = self.unbottle(masked_scores, outputs_nf.size(1))
+
+        return unbottled
 
     def bottle(self, v):
         return v.view(-1, v.size(2))
+
+    def unbottle(self, v, batch_size):
+        return v.view(-1, batch_size, v.size(1))
 
 
 
