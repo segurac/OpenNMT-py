@@ -37,7 +37,7 @@ class TextDataset(ONMTDatasetBase):
     def __init__(self, fields, src_examples_iter, tgt_examples_iter,
                  num_src_feats=0, num_tgt_feats=0,
                  src_seq_length=0, tgt_seq_length=0,
-                 dynamic_dict=True, use_filter_pred=True):
+                 dynamic_dict=True, use_filter_pred=True, init_token=BOS_WORD, eos_token=EOS_WORD, pad_token=PAD_WORD):
         self.data_type = 'text'
 
         # self.src_vocabs: mutated in dynamic_dict, used in
@@ -46,6 +46,11 @@ class TextDataset(ONMTDatasetBase):
 
         self.n_src_feats = num_src_feats
         self.n_tgt_feats = num_tgt_feats
+        
+        
+        self.init_token=init_token
+        self.eos_token=eos_token
+        self.pad_token=pad_token
 
         # Each element of an example is a dictionary whose keys represents
         # at minimum the src tokens and their indices and potentially also

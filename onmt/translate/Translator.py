@@ -27,7 +27,8 @@ class Translator(object):
                  beam_size, n_best=1,
                  max_length=100,
                  global_scorer=None, copy_attn=False, cuda=False,
-                 beam_trace=False, min_length=0):
+                 beam_trace=False, min_length=0, init_token=onmt.io.BOS_WORD, eos_token=onmt.io.EOS_WORD,
+            pad_token=onmt.io.PAD_WORD):
         self.model = model
         self.fields = fields
         self.n_best = n_best
@@ -37,6 +38,9 @@ class Translator(object):
         self.beam_size = beam_size
         self.cuda = cuda
         self.min_length = min_length
+        self.init_token=init_token
+        self.eos_token=eos_token
+        self.pad_token=pad_token
 
         # for debugging
         self.beam_accum = None
@@ -71,9 +75,9 @@ class Translator(object):
         beam = [onmt.translate.Beam(beam_size, n_best=self.n_best,
                                     cuda=self.cuda,
                                     global_scorer=self.global_scorer,
-                                    pad=vocab.stoi[onmt.io.PAD_WORD],
-                                    eos=vocab.stoi[onmt.io.EOS_WORD],
-                                    bos=vocab.stoi[onmt.io.BOS_WORD],
+                                    pad=vocab.stoi[self.pad_token],
+                                    eos=vocab.stoi[self.eos_token],
+                                    bos=vocab.stoi[self.init_token],
                                     min_length=self.min_length)
                 for __ in range(batch_size)]
 

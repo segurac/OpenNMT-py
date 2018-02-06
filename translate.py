@@ -91,7 +91,7 @@ def main():
                                            copy_attn=model_opt.copy_attn,
                                            cuda=opt.cuda,
                                            beam_trace=opt.dump_beam != "",
-                                           min_length=opt.min_length)
+                                           min_length=opt.min_length, init_token="<BOS_DE>")
     builder = onmt.translate.TranslationBuilder(
         data, translator.fields,
         opt.n_best, opt.replace_unk, opt.tgt)
